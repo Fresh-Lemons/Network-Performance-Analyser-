@@ -1,0 +1,25 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.ipch
+
+# Build output
+Debug/
+Release/
+x64/
+x86/
+
+# Intermediate files
+*.obj
+*.pdb
+*.ilk
+*.idb
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+
+# Logs / dumps
+*.log
+*.dmp

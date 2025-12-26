@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36518.9
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConsoleApplication2", "ConsoleApplication2.vcxproj", "{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8EC462FD-D22E-90A8-E5CE-7E832BA40C5D}"
+	ProjectSection(SolutionItems) = preProject
+		.gitignore = .gitignore
+		imgui.cpp = imgui.cpp
+		imgui_demo.cpp = imgui_demo.cpp
+		imgui_draw.cpp = imgui_draw.cpp
+		imgui_impl_glfw.cpp = imgui_impl_glfw.cpp
+		imgui_impl_opengl3.cpp = imgui_impl_opengl3.cpp
+		imgui_tables.cpp = imgui_tables.cpp
+		imgui_widgets.cpp = imgui_widgets.cpp
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Debug|x64.ActiveCfg = Debug|x64
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Debug|x64.Build.0 = Debug|x64
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Debug|x86.ActiveCfg = Debug|Win32
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Debug|x86.Build.0 = Debug|Win32
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Release|x64.ActiveCfg = Release|x64
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Release|x64.Build.0 = Release|x64
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Release|x86.ActiveCfg = Release|Win32
+		{3EE7ACF3-D6E2-49DA-926E-D4134EA01C22}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3005272B-01D0-4FBC-B480-D75919CB36C8}
+	EndGlobalSection
+EndGlobal
