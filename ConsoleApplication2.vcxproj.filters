@@ -13,42 +13,75 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\Capture">
+      <UniqueIdentifier>{e20f8149-5f96-4c32-812a-cc9576d9a451}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Analysis">
+      <UniqueIdentifier>{c2065989-7f0d-40f2-9da4-ebc3e1c5328e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Gui">
+      <UniqueIdentifier>{5587aae4-9708-44c5-b2a9-b8a4f868c199}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\ImGui">
+      <UniqueIdentifier>{6bde1983-5488-49e9-9b10-42902cb8cc66}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="ConsoleApplication2.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="Analysis.cpp">
+      <Filter>Source Files\Analysis</Filter>
     </ClCompile>
-    <ClCompile Include="imgui_impl_dx11.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="Capture.cpp">
+      <Filter>Source Files\Capture</Filter>
     </ClCompile>
-    <ClCompile Include="imgui_impl_win32.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="GUI.cpp">
+      <Filter>Source Files\Gui</Filter>
     </ClCompile>
     <ClCompile Include="imgui.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui_demo.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui_draw.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_impl_dx11.cpp">
+      <Filter>Source Files\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="imgui_impl_win32.cpp">
+      <Filter>Source Files\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui_tables.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>Source Files\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui_widgets.cpp">
+      <Filter>Source Files\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="imgui_impl_dx11.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="Analysis.h">
+      <Filter>Source Files\Analysis</Filter>
     </ClInclude>
-    <ClInclude Include="imgui_impl_win32.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="Capture.h">
+      <Filter>Source Files\Capture</Filter>
+    </ClInclude>
+    <ClInclude Include="GUI.h">
+      <Filter>Source Files\Gui</Filter>
+    </ClInclude>
+    <ClInclude Include="Packet.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="imgui.h">
-      <Filter>Header Files</Filter>
+      <Filter>Source Files\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui_impl_win32.h">
+      <Filter>Source Files\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="imgui_impl_dx11.h">
+      <Filter>Source Files\ImGui</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
