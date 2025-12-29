@@ -22,8 +22,9 @@ The project also serves as a practical investigation into:
 - Network monitoring techniques
 - Flow-based traffic analysis
 - Real-time visualization of network metrics
+  
+**The purpose is not to replace or reproduce deep analysis tools like Wireshark, for deeper analysis, tools like Wireshark should be used as this provides top level information**
 
-** The purpose is not to replace or reproduce deep analysis tools like Wireshark, for deeper analysis, tools like Wireshark should be used as this provides top level information **
 ---
 
 ## 3. Goals
