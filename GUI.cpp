@@ -38,163 +38,185 @@ void RenderGui(float dt)
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
+
     ImGui::Begin("Dashboard", nullptr,
         ImGuiWindowFlags_NoTitleBar |
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoCollapse);
 
-    // --- Top Controls ---
+    // =====================================================
+    // TOP BAR
+    // =====================================================
     auto devices = GetAvailableDevices();
-    if (ImGui::BeginCombo("Interface", selectedDevice >= 0 ? devices[selectedDevice].description.c_str() : "Select...")) {
-        for (int i = 0; i < (int)devices.size(); ++i) {
-            bool sel = (selectedDevice == i);
-            if (ImGui::Selectable(devices[i].description.c_str(), sel)) selectedDevice = i;
-            if (sel) ImGui::SetItemDefaultFocus();
+
+    ImGui::PushItemWidth(300);
+    if (ImGui::BeginCombo(
+        "##iface",
+        selectedDevice >= 0 ? devices[selectedDevice].description.c_str() : "Select Interface"))
+    {
+        for (int i = 0; i < (int)devices.size(); i++) {
+            if (ImGui::Selectable(devices[i].description.c_str(), selectedDevice == i))
+                selectedDevice = i;
         }
         ImGui::EndCombo();
     }
+    ImGui::PopItemWidth();
 
+    ImGui::SameLine();
     if (!IsCapturing()) {
-        ImGui::SameLine();
-        if (selectedDevice >= 0 && ImGui::Button("Start Capture")) {
+        if (selectedDevice >= 0 && ImGui::Button("Start"))
             StartCapture(selectedDevice, "");
-        }
     }
     else {
-        ImGui::SameLine();
-        if (ImGui::Button("Stop Capture")) {
+        if (ImGui::Button("Stop"))
             StopCapture();
-        }
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Save PCAP")) {
+    if (ImGui::Button("Save"))
         SavePcap("capture.pcap");
+
+    ImGui::Separator();
+
+    // =====================================================
+    // METRICS UPDATE
+    // =====================================================
+    static double metricAccum = 0.0;
+    metricAccum += dt;
+    if (metricAccum >= 0.2) {
+        UpdateMetrics(metricAccum);
+        metricAccum = 0.0;
     }
 
-    ImGui::Separator();
+    Metrics m = GetMetrics();
 
-    static double metricAccumulator = 0.0;
-    metricAccumulator += dt;
+    // =====================================================
+    // SUMMARY CARDS
+    // =====================================================
+    ImGui::BeginChild("Summary", ImVec2(0, 70), false);
+    ImGui::Columns(4, nullptr, false);
 
-    // Update metrics every 200 ms
-    if (metricAccumulator >= 0.2)
-    {
-        UpdateMetrics(metricAccumulator);
-        metricAccumulator = 0.0;
-    }
+    ImGui::Text("Packets\n%llu", m.totalPackets);
+    ImGui::NextColumn();
+    ImGui::Text("Bandwidth\n%.1f KB/s", m.bps / 1024.0);
+    ImGui::NextColumn();
+    ImGui::Text("PPS\n%.1f", m.pps);
+    ImGui::NextColumn();
+    ImGui::Text("Total Data\n%.2f MB", m.totalMB);
 
-    // --- Metrics ---
-    auto metrics = GetMetrics();
-    ImGui::Text("Packets: %llu", metrics.totalPackets);
-    ImGui::Text("Bytes: %llu", metrics.totalBytes);
-    ImGui::Text("Bandwidth: %.2f KB/s", metrics.bps / 1024.0);
-    ImGui::Text("PPS: %.2f", metrics.pps);
-    ImGui::Text("Last Latency: %.3f ms", metrics.lastLatency);
-    ImGui::Text("Jitter: %.3f ms", metrics.jitter);
+    ImGui::Columns(1);
+    ImGui::EndChild();
 
     ImGui::Separator();
 
-    // --- Filters ---
-    ImGui::InputText("Filter IP", filterIP, sizeof(filterIP));
-    ImGui::InputInt("Filter Port", &filterPort);
-    ImGui::InputText("Filter Proto", filterProto, sizeof(filterProto));
+    // =====================================================
+    // MAIN SPLIT (60 / 40)
+    // =====================================================
+    float remainingHeight = ImGui::GetContentRegionAvail().y;
+    float packetListHeight = remainingHeight * 0.30f;
+    float upperHeight = remainingHeight - packetListHeight;
 
-    ImGui::Separator();
-
-    // --- Layout ---
+    ImGui::BeginChild("Upper", ImVec2(0, upperHeight), false);
     ImGui::Columns(2, nullptr, true);
-    float colWidth = ImGui::GetColumnWidth();
-    float colHeight = ImGui::GetContentRegionAvail().y;
+    ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.60f);
 
-    // --- Left: Graphs + Pie Chart ---
-    auto bpsHistory = GetBpsHistory();
-    auto ppsHistory = GetPpsHistory();
-
-    ImGui::Text("Bandwidth");
-    ImGui::PlotLines("##Bandwidth", bpsHistory.data(), (int)bpsHistory.size(), 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, colHeight / 4.0f));
-    ImGui::Text("PPS");
-    ImGui::PlotLines("##PPS", ppsHistory.data(), (int)ppsHistory.size(), 0, nullptr, 0.0f, FLT_MAX, ImVec2(0, colHeight / 4.0f));
-
-    // Protocol Pie Chart
-    float tcp, udp, icmp, other;
-    std::tie(tcp, udp, icmp, other) = GetProtocolCounts();
-    float total = tcp + udp + icmp + other;
-    ImGui::Separator();
-    ImGui::Text("Protocol Distribution");
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 pieCenter = ImGui::GetCursorScreenPos();
-    float pieRadius = std::min(colWidth, colHeight / 4.0f) * 0.25f + 50.0f;
-    ImGui::Dummy(ImVec2(0.0f, pieRadius * 2.0f + 10.0f));
-
-    float a = -PI_F * 0.5f;
-    if (total > 0.0f) {
-        auto drawSlice = [&](float count, ImU32 col) {
-            if (count <= 0.0f) return;
-            float ang = (count / total) * (2.0f * PI_F);
-            DrawPie(dl, ImVec2(pieCenter.x + pieRadius, pieCenter.y + pieRadius), pieRadius, a, a + ang, col, 64);
-            a += ang;
-            };
-        drawSlice(tcp, IM_COL32(51, 204, 51, 255));
-        drawSlice(udp, IM_COL32(51, 102, 230, 255));
-        drawSlice(icmp, IM_COL32(255, 153, 51, 255));
-        drawSlice(other, IM_COL32(204, 204, 204, 255));
-    }
-
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    ImGui::Text("TCP: %.0f", tcp);
-    ImGui::Text("UDP: %.0f", udp);
-    ImGui::Text("ICMP: %.0f", icmp);
-    ImGui::Text("Other: %.0f", other);
-    ImGui::EndGroup();
-    ImGui::Separator();
-    ImGui::Text("Top Talkers (Hosts)");
-
-    auto topHosts = GetTopHosts(5);
-
-    // Normalize bars
-    float maxKB = 1.0f;
-    for (const auto& h : topHosts)
-        maxKB = std::max(maxKB, h.second);
-
-    for (const auto& [ip, kb] : topHosts)
+    // -----------------------------------------------------
+    // LEFT COLUMN (Bandwidth + Protocol)
+    // -----------------------------------------------------
     {
-        float frac = kb / maxKB;
+        auto bps = GetBpsHistory();
 
-        ImGui::ProgressBar(
-            frac,
-            ImVec2(-1.0f, 0.0f),
-            (ip + "  " + std::to_string((int)kb) + " KB").c_str()
-        );
+        ImGui::Text("Bandwidth");
+        ImGui::PlotLines(
+            "##bps",
+            bps.data(),
+            (int)bps.size(),
+            0,
+            nullptr,
+            0,
+            FLT_MAX,
+            ImVec2(0, upperHeight * 0.45f));
+
+        ImGui::Separator();
+
+        ImGui::Text("Protocol Bandwidth (placeholder)");
+        ImGui::PlotLines(
+            "##proto",
+            bps.data(),   // reuse for now
+            (int)bps.size(),
+            0,
+            nullptr,
+            0,
+            FLT_MAX,
+            ImVec2(0, upperHeight * 0.35f));
     }
 
     ImGui::NextColumn();
 
-    // --- Right: Packet List (Last 30) ---
+    // -----------------------------------------------------
+    // RIGHT COLUMN (Top Hosts + Flows)
+    // -----------------------------------------------------
+    {
+        ImGui::Text("Top Hosts");
+        auto hosts = GetTopHosts(5);
+
+        float maxKB = 1.0f;
+        for (auto& h : hosts) maxKB = std::max(maxKB, h.second);
+
+        for (auto& h : hosts) {
+            ImGui::ProgressBar(
+                h.second / maxKB,
+                ImVec2(-1, 0),
+                (h.first + "  " + std::to_string((int)h.second) + " KB").c_str());
+        }
+
+        ImGui::Separator();
+
+        ImGui::Text("Top Flows");
+        ImGui::BeginChild("Flows", ImVec2(0, upperHeight * 0.45f), true);
+
+        auto flows = GetTopFlows(5);
+        for (auto& f : flows) {
+            ImGui::Text(
+                "%s:%d ? %s:%d  (%llu KB)",
+                f.key.srcIP.c_str(),
+                f.key.srcPort,
+                f.key.dstIP.c_str(),
+                f.key.dstPort,
+                (f.stats.bytesUp + f.stats.bytesDown) / 1024);
+        }
+
+        ImGui::EndChild();
+    }
+
+    ImGui::Columns(1);
+    ImGui::EndChild();
+
+    ImGui::Separator();
+
+    // =====================================================
+    // PACKET LIST (FULL WIDTH)
+    // =====================================================
+    ImGui::Text("Recent Packets");
+    ImGui::BeginChild("Packets", ImVec2(0, packetListHeight), true,
+        ImGuiWindowFlags_HorizontalScrollbar);
+
     auto packets = GetRecentPackets(30);
-    ImGui::Text("Packet List (Last 30)");
-    float childHeight = colHeight / 1.8f;
-    ImGui::BeginChild("PacketListChild", ImVec2(0, childHeight), true, ImGuiWindowFlags_HorizontalScrollbar);
-
-    for (int i = 0; i < packets.size(); ++i) {
-        const auto& pkt = packets[i];
+    for (int i = 0; i < (int)packets.size(); i++) {
+        const auto& p = packets[i];
         ImGui::PushID(i);
-        ImVec4 col = ImVec4(1, 1, 1, 1);
-        if (pkt.protocol == "TCP") col = ImVec4(0.4f, 1.0f, 0.4f, 1.0f);
-        else if (pkt.protocol == "UDP") col = ImVec4(0.4f, 0.4f, 1.0f, 1.0f);
-        else if (pkt.protocol == "ICMP") col = ImVec4(1.0f, 0.6f, 0.4f, 1.0f);
 
-        ImGui::PushStyleColor(ImGuiCol_Text, col);
-        std::string label = pkt.srcIP + ":" + std::to_string(pkt.srcPort) + " -> " + pkt.dstIP + ":" + std::to_string(pkt.dstPort) + " " + pkt.protocol;
-        ImGui::Selectable(label.c_str(), selectedPacket == i);
-        ImGui::PopStyleColor();
+        std::string label =
+            p.srcIP + ":" + std::to_string(p.srcPort) +
+            " ? " +
+            p.dstIP + ":" + std::to_string(p.dstPort) +
+            "  " + p.protocol;
+
+        ImGui::Selectable(label.c_str());
         ImGui::PopID();
     }
 
     ImGui::EndChild();
-    ImGui::Columns(1);
     ImGui::End();
 }

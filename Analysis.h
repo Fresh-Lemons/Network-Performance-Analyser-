@@ -1,39 +1,71 @@
 #pragma once
-#include <vector>
 #include <string>
-#include <utility>
+#include <vector>
+#include <unordered_map>
 #include <cstdint>
 
-// Simple packet representation
-struct Packet {
+// ---------------- Packet ----------------
+struct Packet
+{
+    std::string srcIP;
+    std::string dstIP;
+    uint16_t srcPort = 0;
+    uint16_t dstPort = 0;
+    uint8_t  protocolId = 0;   // IPPROTO_TCP / UDP / ICMP
+    std::string protocol;      // "TCP", "UDP", "ICMP"
+    uint32_t length = 0;
+    bool isOutbound = true;
+	std::vector<uint8_t> rawData;
+};
+
+// ---------------- Metrics ----------------
+struct Metrics
+{
+    uint64_t totalPackets = 0;
+    uint64_t totalBytes = 0;
+    double   bps = 0.0;
+    double   pps = 0.0;
+    double   totalMB = 0.0;
+    double   lastLatency = 0.0;
+    double   jitter = 0.0;
+};
+
+// ---------------- Flow ----------------
+struct FlowKey
+{
     std::string srcIP;
     std::string dstIP;
     uint16_t srcPort;
     uint16_t dstPort;
-    std::string protocol;
-    uint32_t length;
-    std::vector<uint8_t> rawData;
+    uint8_t  protocol;
 };
 
-// Metrics snapshot
-struct Metrics {
-    uint64_t totalPackets;
-    uint64_t totalBytes;
-    double bps;
-    double pps;
-    double lastLatency;
-    double jitter;
+struct FlowStats
+{
+    uint64_t bytesUp = 0;
+    uint64_t bytesDown = 0;
+    uint64_t packetsUp = 0;
+    uint64_t packetsDown = 0;
+    double firstSeen = 0.0;
+    double lastSeen = 0.0;
 };
 
-// --- Core API ---
+struct Flow
+{
+    FlowKey key;
+    FlowStats stats;
+};
+
+// ---------------- Analysis API ----------------
 void ProcessPacket(const Packet& pkt);
 void UpdateMetrics(double dt);
 
-std::vector<Packet> GetRecentPackets(size_t maxCount);
+// GUI queries
 Metrics GetMetrics();
 std::vector<float> GetBpsHistory();
 std::vector<float> GetPpsHistory();
-std::tuple<float, float, float, float> GetProtocolCounts();
+std::vector<Packet> GetRecentPackets(size_t maxCount);
 
-// --- Per-host analytics ---
+// Flow queries
+std::vector<Flow> GetTopFlows(size_t maxFlows);
 std::vector<std::pair<std::string, float>> GetTopHosts(size_t maxHosts);
