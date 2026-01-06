@@ -3,6 +3,7 @@
 #include <deque>
 #include <algorithm>
 #include <chrono>
+#include <numeric>
 
 static std::mutex g_mutex;
 
@@ -41,13 +42,27 @@ static size_t HashFlow(const FlowKey& k)
 // ---------------- Flow update ----------------
 static void UpdateFlows(const Packet& pkt)
 {
-    FlowKey key{
-        pkt.srcIP,
-        pkt.dstIP,
-        pkt.srcPort,
-        pkt.dstPort,
-        pkt.protocolId
-    };
+    // In UpdateFlows, at the very top
+    FlowKey key;
+    if (pkt.protocol == "ICMP") {
+        key = {
+            pkt.srcIP,
+            pkt.dstIP,
+            pkt.srcPort, // ICMP identifier
+            0,           // ignore sequence
+            pkt.protocolId
+        };
+    }
+    else {
+        key = {
+            pkt.srcIP,
+            pkt.dstIP,
+            pkt.srcPort,
+            pkt.dstPort,
+            pkt.protocolId
+        };
+    }
+
 
     size_t h = HashFlow(key);
     auto& flow = g_flows[h];
@@ -61,15 +76,44 @@ static void UpdateFlows(const Packet& pkt)
 
     flow.stats.lastSeen = t;
 
-    if (pkt.isOutbound) {
-        flow.stats.bytesUp += pkt.length;
-        flow.stats.packetsUp++;
-    }
-    else {
+    // bytes/packets counting
+    if (!pkt.isOutbound) {
         flow.stats.bytesDown += pkt.length;
         flow.stats.packetsDown++;
     }
+    else {
+        flow.stats.bytesUp += pkt.length;
+        flow.stats.packetsUp++;
+    }
+
+    // --- ICMP RTT & packet loss ---
+    if (pkt.protocol == "ICMP") {
+        if (pkt.icmpType == 8 && pkt.isOutbound) { // Echo Request
+            flow.stats.icmpRequests[pkt.icmpSeq] = t;
+            flow.stats.echoRequests++;
+        }
+        else if (pkt.icmpType == 0 && !pkt.isOutbound) { // Echo Reply
+            auto it = flow.stats.icmpRequests.find(pkt.icmpSeq);
+            if (it != flow.stats.icmpRequests.end()) {
+                double rttMs = (t - it->second) * 1000.0;
+                flow.stats.latencyHistory.push_back(rttMs);
+                flow.stats.icmpRequests.erase(it);
+                flow.stats.echoReplies++;
+            }
+        }
+
+        // optional: update packet loss per flow
+        double loss = 0.0;
+        if (flow.stats.echoRequests > 0) {
+            loss = 100.0 * (flow.stats.echoRequests - flow.stats.echoReplies) / flow.stats.echoRequests;
+        }
+        if (flow.stats.packetLossHistory.size() >= 100)
+            flow.stats.packetLossHistory.erase(flow.stats.packetLossHistory.begin());
+        flow.stats.packetLossHistory.push_back(loss);
+    }
 }
+
+
 
 // ---------------- Packet processing ----------------
 void ProcessPacket(const Packet& pkt)
@@ -112,6 +156,10 @@ void UpdateMetrics(double dt)
 
     g_metrics.bps = bps;
     g_metrics.pps = pps;
+
+    g_metrics.lastLatency = ComputeAverageLatency();
+    g_metrics.jitter = ComputeJitter();
+    g_metrics.packetLoss = ComputePacketLoss();
 }
 
 // ---------------- GUI getters ----------------
@@ -144,6 +192,71 @@ std::vector<Packet> GetRecentPackets(size_t maxCount)
         out.assign(g_packets.begin(), g_packets.end());
 
     return out;
+}
+double ComputeAverageLatency() {
+    double sum = 0.0;
+    size_t count = 0;
+    for (auto& [_, f] : g_flows) {
+        for (double l : f.stats.latencyHistory) {
+            sum += l;
+            count++;
+        }
+    }
+    return count ? (sum / count) : 0.0;
+}
+
+double ComputeJitter() {
+    double sum = 0.0, sumSq = 0.0;
+    size_t count = 0;
+    for (auto& [_, f] : g_flows) {
+        for (double l : f.stats.latencyHistory) {
+            sum += l;
+            sumSq += l * l;
+            count++;
+        }
+    }
+    if (count < 2) return 0.0;
+    double mean = sum / count;
+    double variance = (sumSq / count) - (mean * mean);
+    return std::sqrt(std::max(0.0, variance));
+}
+
+double ComputePacketLoss() {
+    uint64_t sent = 0, recv = 0;
+    for (auto& [_, f] : g_flows) {
+        sent += f.stats.echoRequests;
+        recv += f.stats.echoReplies;
+    }
+    if (sent == 0) return 0.0;
+    return 100.0 * (double)(sent - recv) / sent;
+}
+
+
+std::vector<float> GetLatencyHistory()
+{
+    std::vector<float> history;
+    for (auto& [h, flow] : g_flows) {
+        for (double val : flow.stats.latencyHistory)
+            history.push_back(static_cast<float>(val));
+    }
+    return history;
+}
+
+std::vector<float> GetPacketLossHistory()
+{
+    std::vector<float> history;
+    for (auto& [h, flow] : g_flows) {
+        for (double val : flow.stats.packetLossHistory)
+            history.push_back(static_cast<float>(val));
+    }
+    return history;
+}
+
+
+std::vector<float> GetProtocolBandwidthHistory()
+{
+    static std::vector<float> dummy(300, 0.0f);
+    return dummy;
 }
 
 // ---------------- Flow queries ----------------

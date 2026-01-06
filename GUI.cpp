@@ -95,7 +95,7 @@ void RenderGui(float dt)
     // SUMMARY CARDS
     // =====================================================
     ImGui::BeginChild("Summary", ImVec2(0, 70), false);
-    ImGui::Columns(4, nullptr, false);
+    ImGui::Columns(7, nullptr, false);
 
     ImGui::Text("Packets\n%llu", m.totalPackets);
     ImGui::NextColumn();
@@ -104,6 +104,13 @@ void RenderGui(float dt)
     ImGui::Text("PPS\n%.1f", m.pps);
     ImGui::NextColumn();
     ImGui::Text("Total Data\n%.2f MB", m.totalMB);
+	ImGui::NextColumn();
+    ImGui::Text("Average Latency\n%.1f ms", m.lastLatency);
+    ImGui::NextColumn();
+    ImGui::Text("Jitter\n%.1f ms", m.jitter);
+    ImGui::NextColumn();
+    ImGui::Text("Packet Loss\n%.1f %%", m.packetLoss);
+    ImGui::NextColumn();
 
     ImGui::Columns(1);
     ImGui::EndChild();
@@ -121,35 +128,78 @@ void RenderGui(float dt)
     ImGui::Columns(2, nullptr, true);
     ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.60f);
 
-    // -----------------------------------------------------
-    // LEFT COLUMN (Bandwidth + Protocol)
-    // -----------------------------------------------------
+    ImGui::TableSetColumnIndex(0);
+
+    // -------------------------------------------------
+    // LEFT COLUMN: 2x2 GRAPH GRID
+    // -------------------------------------------------
+    float graphHeight = upperHeight * 0.45f;
+
+    if (ImGui::BeginTable("LeftGraphs", 2,
+        ImGuiTableFlags_BordersInner |
+        ImGuiTableFlags_Resizable))
     {
-        auto bps = GetBpsHistory();
+        ImGui::TableNextRow();
 
-        ImGui::Text("Bandwidth");
-        ImGui::PlotLines(
-            "##bps",
-            bps.data(),
-            (int)bps.size(),
-            0,
-            nullptr,
-            0,
-            FLT_MAX,
-            ImVec2(0, upperHeight * 0.45f));
+        // -------- Top-left: Total Bandwidth --------
+        ImGui::TableSetColumnIndex(0);
+        {
+            ImGui::Text("Bandwidth");
+            auto bps = GetBpsHistory();
+            ImGui::PlotLines(
+                "##bw_total",
+                bps.data(),
+                (int)bps.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+        }
 
-        ImGui::Separator();
+        // -------- Top-right: Bandwidth by Protocol --------
+        ImGui::TableSetColumnIndex(1);
+        {
+            ImGui::Text("Bandwidth by Protocol");
+            auto protoBps = GetProtocolBandwidthHistory(); // see note below
+            ImGui::PlotLines(
+                "##bw_proto",
+                protoBps.data(),
+                (int)protoBps.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+        }
 
-        ImGui::Text("Protocol Bandwidth (placeholder)");
-        ImGui::PlotLines(
-            "##proto",
-            bps.data(),   // reuse for now
-            (int)bps.size(),
-            0,
-            nullptr,
-            0,
-            FLT_MAX,
-            ImVec2(0, upperHeight * 0.35f));
+        ImGui::TableNextRow();
+
+        // -------- Bottom-left: Latency --------
+        ImGui::TableSetColumnIndex(0);
+        {
+            ImGui::Text("Latency");
+            auto latency = GetLatencyHistory(); // see note below
+            ImGui::PlotLines(
+                "##latency",
+                latency.data(),
+                (int)latency.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+        }
+
+        // -------- Bottom-right: Reserved --------
+        ImGui::TableSetColumnIndex(1);
+        {
+            ImGui::Text("Future Metric");
+            ImGui::Dummy(ImVec2(-1, graphHeight));
+            ImGui::TextDisabled("Reserved");
+        }
+
+        ImGui::EndTable();
     }
 
     ImGui::NextColumn();
@@ -176,7 +226,7 @@ void RenderGui(float dt)
         ImGui::Text("Top Flows");
         ImGui::BeginChild("Flows", ImVec2(0, upperHeight * 0.45f), true);
 
-        auto flows = GetTopFlows(5);
+        auto flows = GetTopFlows(10);
         for (auto& f : flows) {
             ImGui::Text(
                 "%s:%d ? %s:%d  (%llu KB)",

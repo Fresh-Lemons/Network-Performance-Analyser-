@@ -73,12 +73,37 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
         pkt.protocol = "UDP";
     }
-    else if (ipProto == 1) {
+    else if (ipProto == 1 && header->caplen >= 14 + ihl + 8) {
         pkt.protocol = "ICMP";
+
+        const u_char* icmp = ip + ihl;
+        uint8_t icmpType = icmp[0];
+
+        uint16_t icmpId = ntohs(*(uint16_t*)(icmp + 4));
+        uint16_t icmpSeq = ntohs(*(uint16_t*)(icmp + 6));
+
+        pkt.icmpType = icmpType;
+        pkt.srcPort = icmpId;
+        pkt.dstPort = icmpSeq;
+        pkt.isOutbound = (icmpType == 8);
     }
 
+    pkt.isOutbound = IsLocalIP(srcIP);
     // send packet to Analysis
     ProcessPacket(pkt);
+}
+
+static bool IsLocalIP(uint32_t ip)
+{
+    uint8_t b1 = ip & 0xFF;
+    uint8_t b2 = (ip >> 8) & 0xFF;
+
+    // RFC1918 private ranges
+    if (b1 == 10) return true;
+    if (b1 == 192 && b2 == 168) return true;
+    if (b1 == 172 && (b2 >= 16 && b2 <= 31)) return true;
+
+    return false;
 }
 
 // ---------------- Capture Thread ----------------
@@ -105,7 +130,7 @@ bool StartCapture(int deviceIndex, const std::string& filter)
     g_handle = pcap_open_live(g_devices[deviceIndex].name.c_str(), 65536, 1, 100, errbuf);
     if (!g_handle) return false;
 
-    // optional: compile BPF filter
+    // BPF filter
     if (!filter.empty()) {
         bpf_program fp;
         if (pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN) == 0) {

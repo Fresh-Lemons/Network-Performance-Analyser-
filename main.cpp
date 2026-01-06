@@ -132,7 +132,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // Render modular GUI
+        // Render GUI
         RenderGui(dt);
 
         ImGui::Render();
