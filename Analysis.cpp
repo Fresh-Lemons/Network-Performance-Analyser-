@@ -1,4 +1,6 @@
 #include "Analysis.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <mutex>
 #include <deque>
 #include <algorithm>
@@ -42,16 +44,15 @@ static size_t HashFlow(const FlowKey& k)
 // ---------------- Flow update ----------------
 static void UpdateFlows(const Packet& pkt)
 {
-    // In UpdateFlows, at the very top
     FlowKey key;
+
     if (pkt.protocol == "ICMP") {
-        key = {
-            pkt.srcIP,
-            pkt.dstIP,
-            pkt.srcPort, // ICMP identifier
-            0,           // ignore sequence
-            pkt.protocolId
-        };
+        if (pkt.srcIP < pkt.dstIP) {
+            key = { pkt.srcIP, pkt.dstIP, 0, 0, IPPROTO_ICMP };
+        }
+        else {
+            key = { pkt.dstIP, pkt.srcIP, 0, 0, IPPROTO_ICMP };
+        }
     }
     else {
         key = {
@@ -62,7 +63,6 @@ static void UpdateFlows(const Packet& pkt)
             pkt.protocolId
         };
     }
-
 
     size_t h = HashFlow(key);
     auto& flow = g_flows[h];
@@ -97,6 +97,16 @@ static void UpdateFlows(const Packet& pkt)
             if (it != flow.stats.icmpRequests.end()) {
                 double rttMs = (t - it->second) * 1000.0;
                 flow.stats.latencyHistory.push_back(rttMs);
+                if (flow.stats.latencyHistory.size() >= 2) {
+                    double lastLatency = flow.stats.latencyHistory[flow.stats.latencyHistory.size() - 2];
+                    double jitter = std::abs(rttMs - lastLatency);
+                    flow.stats.jitterHistory.push_back(jitter);
+
+                    if (flow.stats.jitterHistory.size() > flow.stats.maxHistory)
+                        flow.stats.jitterHistory.erase(flow.stats.jitterHistory.begin());
+                }
+                if (flow.stats.latencyHistory.size() > flow.stats.maxHistory)
+                    flow.stats.latencyHistory.erase(flow.stats.latencyHistory.begin());
                 flow.stats.icmpRequests.erase(it);
                 flow.stats.echoReplies++;
             }
@@ -204,22 +214,19 @@ double ComputeAverageLatency() {
     }
     return count ? (sum / count) : 0.0;
 }
-
 double ComputeJitter() {
-    double sum = 0.0, sumSq = 0.0;
+    double total = 0.0;
     size_t count = 0;
     for (auto& [_, f] : g_flows) {
-        for (double l : f.stats.latencyHistory) {
-            sum += l;
-            sumSq += l * l;
+        for (double j : f.stats.jitterHistory) {
+            total += j;
             count++;
         }
     }
-    if (count < 2) return 0.0;
-    double mean = sum / count;
-    double variance = (sumSq / count) - (mean * mean);
-    return std::sqrt(std::max(0.0, variance));
+    return count ? (total / count) : 0.0;
 }
+
+
 
 double ComputePacketLoss() {
     uint64_t sent = 0, recv = 0;
@@ -237,6 +244,16 @@ std::vector<float> GetLatencyHistory()
     std::vector<float> history;
     for (auto& [h, flow] : g_flows) {
         for (double val : flow.stats.latencyHistory)
+            history.push_back(static_cast<float>(val));
+    }
+    return history;
+}
+
+std::vector<float> GetJitterHistory()
+{
+    std::vector<float> history;
+    for (auto& [h, flow] : g_flows) {
+        for (double val : flow.stats.jitterHistory)
             history.push_back(static_cast<float>(val));
     }
     return history;

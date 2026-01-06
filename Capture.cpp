@@ -73,22 +73,31 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
         pkt.protocol = "UDP";
     }
-    else if (ipProto == 1 && header->caplen >= 14 + ihl + 8) {
+    else if (ipProto == IPPROTO_ICMP && header->caplen >= 14 + ihl + sizeof(IcmpHeader)) {
         pkt.protocol = "ICMP";
+        pkt.protocolId = IPPROTO_ICMP;
 
-        const u_char* icmp = ip + ihl;
-        uint8_t icmpType = icmp[0];
+        const IcmpHeader* icmp =
+            reinterpret_cast<const IcmpHeader*>(ip + ihl);
 
-        uint16_t icmpId = ntohs(*(uint16_t*)(icmp + 4));
-        uint16_t icmpSeq = ntohs(*(uint16_t*)(icmp + 6));
-
-        pkt.icmpType = icmpType;
-        pkt.srcPort = icmpId;
-        pkt.dstPort = icmpSeq;
-        pkt.isOutbound = (icmpType == 8);
+        pkt.icmpType = icmp->type;
+        pkt.icmpId = ntohs(icmp->identifier);
+        pkt.icmpSeq = ntohs(icmp->sequence);
+        pkt.isOutbound = (pkt.icmpType == 8);
+    }
+    if (pkt.protocol == "ICMP") {
+        char buf[256];
+        sprintf_s(
+            buf,
+            "ICMP %s type=%d id=%u seq=%u\n",
+            pkt.isOutbound ? "OUT" : "IN",
+            pkt.icmpType,
+            pkt.icmpId,
+            pkt.icmpSeq
+        );
+        OutputDebugStringA(buf);
     }
 
-    pkt.isOutbound = IsLocalIP(srcIP);
     // send packet to Analysis
     ProcessPacket(pkt);
 }
@@ -183,7 +192,6 @@ bool SavePcap(const std::string& filename)
     for (auto& pkt : packets) {
         struct pcap_pkthdr hdr {};
         hdr.caplen = hdr.len = pkt.length;
-        // optional: timestamp
         pcap_dump((u_char*)dumper, &hdr, pkt.rawData.data());
     }
 

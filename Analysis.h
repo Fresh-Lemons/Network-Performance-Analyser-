@@ -64,6 +64,7 @@ struct Metrics
     double lastLatency = 0.0;
     double jitter = 0.0;
     double packetLoss = 0.0;
+    double smoothedLatency = 0.0;
 };
 
 // ---------------- Flow ----------------
@@ -87,12 +88,13 @@ struct FlowStats
 
     std::vector<double> latencyHistory;     // ms
     std::vector<double> packetLossHistory;  // %
-    std::vector<double> requestTimes;       // <<< Add this
+    std::vector<double> jitterHistory;      // ms
+    std::vector<double> requestTimes;     
     uint64_t totalRequests = 0;
     uint64_t totalResponses = 0;
-    static constexpr size_t maxHistory = 100; // make static to allow moves
+    static constexpr size_t maxHistory = 100;
 
-    std::unordered_map<uint16_t, double> icmpRequests; // seq ? timestamp
+    std::unordered_map<uint16_t, double> icmpRequests;
     uint64_t echoRequests = 0;
     uint64_t echoReplies = 0;
 };
@@ -114,10 +116,11 @@ std::vector<float> GetBpsHistory();
 std::vector<float> GetPpsHistory();
 std::vector<Packet> GetRecentPackets(size_t maxCount);
 std::vector<float> GetLatencyHistory();
+std::vector<float> GetJitterHistory();
 std::vector<float> GetProtocolBandwidthHistory();
-double ComputeJitter();           // your rolling jitter calculation
+double ComputeJitter();
 double ComputeAverageLatency();
-double ComputePacketLoss();  // add this field to Metrics
+double ComputePacketLoss();
 
 // Flow queries
 std::vector<Flow> GetTopFlows(size_t maxFlows);

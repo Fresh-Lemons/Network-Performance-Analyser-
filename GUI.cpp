@@ -118,7 +118,7 @@ void RenderGui(float dt)
     ImGui::Separator();
 
     // =====================================================
-    // MAIN SPLIT (60 / 40)
+    // MAIN SPLIT
     // =====================================================
     float remainingHeight = ImGui::GetContentRegionAvail().y;
     float packetListHeight = remainingHeight * 0.30f;
@@ -161,7 +161,7 @@ void RenderGui(float dt)
         ImGui::TableSetColumnIndex(1);
         {
             ImGui::Text("Bandwidth by Protocol");
-            auto protoBps = GetProtocolBandwidthHistory(); // see note below
+            auto protoBps = GetProtocolBandwidthHistory();
             ImGui::PlotLines(
                 "##bw_proto",
                 protoBps.data(),
@@ -179,7 +179,7 @@ void RenderGui(float dt)
         ImGui::TableSetColumnIndex(0);
         {
             ImGui::Text("Latency");
-            auto latency = GetLatencyHistory(); // see note below
+            auto latency = GetLatencyHistory();
             ImGui::PlotLines(
                 "##latency",
                 latency.data(),
@@ -194,9 +194,17 @@ void RenderGui(float dt)
         // -------- Bottom-right: Reserved --------
         ImGui::TableSetColumnIndex(1);
         {
-            ImGui::Text("Future Metric");
-            ImGui::Dummy(ImVec2(-1, graphHeight));
-            ImGui::TextDisabled("Reserved");
+            ImGui::Text("Jitter");
+            auto jitter = GetJitterHistory();
+            ImGui::PlotLines(
+                "##jitter",
+                jitter.data(),
+                (int)jitter.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
         }
 
         ImGui::EndTable();
@@ -209,35 +217,42 @@ void RenderGui(float dt)
     // -----------------------------------------------------
     {
         ImGui::Text("Top Hosts");
-        auto hosts = GetTopHosts(5);
+        auto hosts = GetTopHosts(10);
+        ImGui::BeginTable("HostsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+        ImGui::TableSetupColumn("Host");
+        ImGui::TableSetupColumn("KB");
+        ImGui::TableHeadersRow();
 
-        float maxKB = 1.0f;
-        for (auto& h : hosts) maxKB = std::max(maxKB, h.second);
-
-        for (auto& h : hosts) {
-            ImGui::ProgressBar(
-                h.second / maxKB,
-                ImVec2(-1, 0),
-                (h.first + "  " + std::to_string((int)h.second) + " KB").c_str());
+        for (auto& h : hosts)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(h.first.c_str());
+            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", (int)h.second);
         }
+        ImGui::EndTable();
 
         ImGui::Separator();
 
+        // Top Flows Table
         ImGui::Text("Top Flows");
-        ImGui::BeginChild("Flows", ImVec2(0, upperHeight * 0.45f), true);
-
         auto flows = GetTopFlows(10);
-        for (auto& f : flows) {
-            ImGui::Text(
-                "%s:%d ? %s:%d  (%llu KB)",
-                f.key.srcIP.c_str(),
-                f.key.srcPort,
-                f.key.dstIP.c_str(),
-                f.key.dstPort,
-                (f.stats.bytesUp + f.stats.bytesDown) / 1024);
-        }
+        ImGui::BeginTable("FlowsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+        ImGui::TableSetupColumn("Src");
+        ImGui::TableSetupColumn("Dst");
+        ImGui::TableSetupColumn("KB");
+        ImGui::TableHeadersRow();
 
-        ImGui::EndChild();
+        for (auto& f : flows)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%s:%d", f.key.srcIP.c_str(), f.key.srcPort);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%s:%d", f.key.dstIP.c_str(), f.key.dstPort);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%llu", (f.stats.bytesUp + f.stats.bytesDown) / 1024);
+        }
+        ImGui::EndTable();
     }
 
     ImGui::Columns(1);
