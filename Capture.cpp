@@ -57,15 +57,19 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     pkt.dstIP = std::to_string(dstIP & 0xFF) + "." + std::to_string((dstIP >> 8) & 0xFF) +
         "." + std::to_string((dstIP >> 16) & 0xFF) + "." + std::to_string((dstIP >> 24) & 0xFF);
 
-    pkt.srcPort = 0;
-    pkt.dstPort = 0;
-    pkt.protocol = "OTHER";
-
     if (ipProto == 6 && header->caplen >= 14 + ihl + 4) { // TCP
         const u_char* l4 = ip + ihl;
         pkt.srcPort = ntohs(*(uint16_t*)(l4 + 0));
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
+        pkt.tcpSeq = ntohl(*(uint32_t*)(l4 + 4));
+        pkt.tcpAck = ntohl(*(uint32_t*)(l4 + 8));
+        uint8_t dataOffset = (l4[12] >> 4) * 4;
+        uint16_t ipTotalLen = ntohs(*(uint16_t*)(ip + 2));
+        uint32_t payloadLen = ipTotalLen - ihl - dataOffset;
+        pkt.tcpPayloadLen = payloadLen;
         pkt.protocol = "TCP";
+        pkt.protocolId = IPPROTO_TCP;
+        pkt.isOutbound = IsLocalIP(srcIP);
     }
     else if (ipProto == 17 && header->caplen >= 14 + ihl + 4) { // UDP
         const u_char* l4 = ip + ihl;
@@ -84,18 +88,6 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.icmpId = ntohs(icmp->identifier);
         pkt.icmpSeq = ntohs(icmp->sequence);
         pkt.isOutbound = (pkt.icmpType == 8);
-    }
-    if (pkt.protocol == "ICMP") {
-        char buf[256];
-        sprintf_s(
-            buf,
-            "ICMP %s type=%d id=%u seq=%u\n",
-            pkt.isOutbound ? "OUT" : "IN",
-            pkt.icmpType,
-            pkt.icmpId,
-            pkt.icmpSeq
-        );
-        OutputDebugStringA(buf);
     }
 
     // send packet to Analysis

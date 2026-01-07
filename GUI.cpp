@@ -5,6 +5,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <deque>
 
 // For pie chart
 #ifndef PI_F
@@ -16,6 +17,7 @@ static char filterIP[64] = "";
 static int filterPort = 0;
 static char filterProto[8] = "";
 static int selectedPacket = -1;
+
 
 // ---------------- Pie drawing ----------------
 static void DrawPie(ImDrawList* dl, const ImVec2& center, float radius, float a0, float a1, ImU32 color, int num_segments = 64)
@@ -189,6 +191,7 @@ void RenderGui(float dt)
                 0,
                 FLT_MAX,
                 ImVec2(-1, graphHeight));
+
         }
 
         // -------- Bottom-right: Reserved --------
@@ -217,7 +220,7 @@ void RenderGui(float dt)
     // -----------------------------------------------------
     {
         ImGui::Text("Top Hosts");
-        auto hosts = GetTopHosts(10);
+        auto hosts = GetTopHosts(6);
         ImGui::BeginTable("HostsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
         ImGui::TableSetupColumn("Host");
         ImGui::TableSetupColumn("KB");
@@ -235,7 +238,7 @@ void RenderGui(float dt)
 
         // Top Flows Table
         ImGui::Text("Top Flows");
-        auto flows = GetTopFlows(10);
+        auto flows = GetTopFlows(6);
         ImGui::BeginTable("FlowsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
         ImGui::TableSetupColumn("Src");
         ImGui::TableSetupColumn("Dst");
@@ -257,6 +260,22 @@ void RenderGui(float dt)
 
     ImGui::Columns(1);
     ImGui::EndChild();
+    
+
+	// Debug Console (disabled by default)
+    /*
+    ImGui::Separator();
+    ImGui::Text("Debug Log");
+
+    ImGui::BeginChild("DebugLog", ImVec2(0, 150), true);
+
+    auto log = GetDebugLog();
+    for (const auto& line : log) {
+        ImGui::TextUnformatted(line.c_str());
+    }
+
+    ImGui::EndChild();
+    */
 
     ImGui::Separator();
 
@@ -267,7 +286,7 @@ void RenderGui(float dt)
     ImGui::BeginChild("Packets", ImVec2(0, packetListHeight), true,
         ImGuiWindowFlags_HorizontalScrollbar);
 
-    auto packets = GetRecentPackets(30);
+    auto packets = GetRecentPackets(100);
     for (int i = 0; i < (int)packets.size(); i++) {
         const auto& p = packets[i];
         ImGui::PushID(i);
