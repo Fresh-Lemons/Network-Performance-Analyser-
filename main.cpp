@@ -1,4 +1,3 @@
-// main.cpp
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -7,13 +6,9 @@
 #include <chrono>
 #include <thread>
 #include <iostream>
-
-// ImGui core + backends
 #include "imgui.h"
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
-
-// Your modular headers
 #include "Gui.h"
 #include "Capture.h"
 #include "Analysis.h"
@@ -132,7 +127,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // Render modular GUI
+        // Render GUI
         RenderGui(dt);
 
         ImGui::Render();

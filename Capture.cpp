@@ -57,15 +57,19 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     pkt.dstIP = std::to_string(dstIP & 0xFF) + "." + std::to_string((dstIP >> 8) & 0xFF) +
         "." + std::to_string((dstIP >> 16) & 0xFF) + "." + std::to_string((dstIP >> 24) & 0xFF);
 
-    pkt.srcPort = 0;
-    pkt.dstPort = 0;
-    pkt.protocol = "OTHER";
-
     if (ipProto == 6 && header->caplen >= 14 + ihl + 4) { // TCP
         const u_char* l4 = ip + ihl;
         pkt.srcPort = ntohs(*(uint16_t*)(l4 + 0));
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
+        pkt.tcpSeq = ntohl(*(uint32_t*)(l4 + 4));
+        pkt.tcpAck = ntohl(*(uint32_t*)(l4 + 8));
+        uint8_t dataOffset = (l4[12] >> 4) * 4;
+        uint16_t ipTotalLen = ntohs(*(uint16_t*)(ip + 2));
+        uint32_t payloadLen = ipTotalLen - ihl - dataOffset;
+        pkt.tcpPayloadLen = payloadLen;
         pkt.protocol = "TCP";
+        pkt.protocolId = IPPROTO_TCP;
+        pkt.isOutbound = IsLocalIP(srcIP);
     }
     else if (ipProto == 17 && header->caplen >= 14 + ihl + 4) { // UDP
         const u_char* l4 = ip + ihl;
@@ -73,12 +77,34 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
         pkt.protocol = "UDP";
     }
-    else if (ipProto == 1) {
+    else if (ipProto == IPPROTO_ICMP && header->caplen >= 14 + ihl + sizeof(IcmpHeader)) {
         pkt.protocol = "ICMP";
+        pkt.protocolId = IPPROTO_ICMP;
+
+        const IcmpHeader* icmp =
+            reinterpret_cast<const IcmpHeader*>(ip + ihl);
+
+        pkt.icmpType = icmp->type;
+        pkt.icmpId = ntohs(icmp->identifier);
+        pkt.icmpSeq = ntohs(icmp->sequence);
+        pkt.isOutbound = (pkt.icmpType == 8);
     }
 
     // send packet to Analysis
     ProcessPacket(pkt);
+}
+
+static bool IsLocalIP(uint32_t ip)
+{
+    uint8_t b1 = ip & 0xFF;
+    uint8_t b2 = (ip >> 8) & 0xFF;
+
+    // RFC1918 private ranges
+    if (b1 == 10) return true;
+    if (b1 == 192 && b2 == 168) return true;
+    if (b1 == 172 && (b2 >= 16 && b2 <= 31)) return true;
+
+    return false;
 }
 
 // ---------------- Capture Thread ----------------
@@ -105,7 +131,7 @@ bool StartCapture(int deviceIndex, const std::string& filter)
     g_handle = pcap_open_live(g_devices[deviceIndex].name.c_str(), 65536, 1, 100, errbuf);
     if (!g_handle) return false;
 
-    // optional: compile BPF filter
+    // BPF filter
     if (!filter.empty()) {
         bpf_program fp;
         if (pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN) == 0) {
@@ -158,7 +184,6 @@ bool SavePcap(const std::string& filename)
     for (auto& pkt : packets) {
         struct pcap_pkthdr hdr {};
         hdr.caplen = hdr.len = pkt.length;
-        // optional: timestamp
         pcap_dump((u_char*)dumper, &hdr, pkt.rawData.data());
     }
 

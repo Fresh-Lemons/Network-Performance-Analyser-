@@ -5,6 +5,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <deque>
 
 // For pie chart
 #ifndef PI_F
@@ -16,6 +17,7 @@ static char filterIP[64] = "";
 static int filterPort = 0;
 static char filterProto[8] = "";
 static int selectedPacket = -1;
+
 
 // ---------------- Pie drawing ----------------
 static void DrawPie(ImDrawList* dl, const ImVec2& center, float radius, float a0, float a1, ImU32 color, int num_segments = 64)
@@ -95,7 +97,7 @@ void RenderGui(float dt)
     // SUMMARY CARDS
     // =====================================================
     ImGui::BeginChild("Summary", ImVec2(0, 70), false);
-    ImGui::Columns(4, nullptr, false);
+    ImGui::Columns(7, nullptr, false);
 
     ImGui::Text("Packets\n%llu", m.totalPackets);
     ImGui::NextColumn();
@@ -104,6 +106,13 @@ void RenderGui(float dt)
     ImGui::Text("PPS\n%.1f", m.pps);
     ImGui::NextColumn();
     ImGui::Text("Total Data\n%.2f MB", m.totalMB);
+	ImGui::NextColumn();
+    ImGui::Text("Average Latency\n%.1f ms", m.lastLatency);
+    ImGui::NextColumn();
+    ImGui::Text("Jitter\n%.1f ms", m.jitter);
+    ImGui::NextColumn();
+    ImGui::Text("Packet Loss\n%.1f %%", m.packetLoss);
+    ImGui::NextColumn();
 
     ImGui::Columns(1);
     ImGui::EndChild();
@@ -111,7 +120,7 @@ void RenderGui(float dt)
     ImGui::Separator();
 
     // =====================================================
-    // MAIN SPLIT (60 / 40)
+    // MAIN SPLIT
     // =====================================================
     float remainingHeight = ImGui::GetContentRegionAvail().y;
     float packetListHeight = remainingHeight * 0.30f;
@@ -121,35 +130,87 @@ void RenderGui(float dt)
     ImGui::Columns(2, nullptr, true);
     ImGui::SetColumnWidth(0, ImGui::GetWindowWidth() * 0.60f);
 
-    // -----------------------------------------------------
-    // LEFT COLUMN (Bandwidth + Protocol)
-    // -----------------------------------------------------
+    ImGui::TableSetColumnIndex(0);
+
+    // -------------------------------------------------
+    // LEFT COLUMN: 2x2 GRAPH GRID
+    // -------------------------------------------------
+    float graphHeight = upperHeight * 0.45f;
+
+    if (ImGui::BeginTable("LeftGraphs", 2,
+        ImGuiTableFlags_BordersInner |
+        ImGuiTableFlags_Resizable))
     {
-        auto bps = GetBpsHistory();
+        ImGui::TableNextRow();
 
-        ImGui::Text("Bandwidth");
-        ImGui::PlotLines(
-            "##bps",
-            bps.data(),
-            (int)bps.size(),
-            0,
-            nullptr,
-            0,
-            FLT_MAX,
-            ImVec2(0, upperHeight * 0.45f));
+        // -------- Top-left: Total Bandwidth --------
+        ImGui::TableSetColumnIndex(0);
+        {
+            ImGui::Text("Bandwidth");
+            auto bps = GetBpsHistory();
+            ImGui::PlotLines(
+                "##bw_total",
+                bps.data(),
+                (int)bps.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+        }
 
-        ImGui::Separator();
+        // -------- Top-right: Bandwidth by Protocol --------
+        ImGui::TableSetColumnIndex(1);
+        {
+            ImGui::Text("Bandwidth by Protocol");
+            auto protoBps = GetProtocolBandwidthHistory();
+            ImGui::PlotLines(
+                "##bw_proto",
+                protoBps.data(),
+                (int)protoBps.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+        }
 
-        ImGui::Text("Protocol Bandwidth (placeholder)");
-        ImGui::PlotLines(
-            "##proto",
-            bps.data(),   // reuse for now
-            (int)bps.size(),
-            0,
-            nullptr,
-            0,
-            FLT_MAX,
-            ImVec2(0, upperHeight * 0.35f));
+        ImGui::TableNextRow();
+
+        // -------- Bottom-left: Latency --------
+        ImGui::TableSetColumnIndex(0);
+        {
+            ImGui::Text("Latency");
+            auto latency = GetLatencyHistory();
+            ImGui::PlotLines(
+                "##latency",
+                latency.data(),
+                (int)latency.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+
+        }
+
+        // -------- Bottom-right: Reserved --------
+        ImGui::TableSetColumnIndex(1);
+        {
+            ImGui::Text("Jitter");
+            auto jitter = GetJitterHistory();
+            ImGui::PlotLines(
+                "##jitter",
+                jitter.data(),
+                (int)jitter.size(),
+                0,
+                nullptr,
+                0,
+                FLT_MAX,
+                ImVec2(-1, graphHeight));
+        }
+
+        ImGui::EndTable();
     }
 
     ImGui::NextColumn();
@@ -159,39 +220,62 @@ void RenderGui(float dt)
     // -----------------------------------------------------
     {
         ImGui::Text("Top Hosts");
-        auto hosts = GetTopHosts(5);
+        auto hosts = GetTopHosts(6);
+        ImGui::BeginTable("HostsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+        ImGui::TableSetupColumn("Host");
+        ImGui::TableSetupColumn("KB");
+        ImGui::TableHeadersRow();
 
-        float maxKB = 1.0f;
-        for (auto& h : hosts) maxKB = std::max(maxKB, h.second);
-
-        for (auto& h : hosts) {
-            ImGui::ProgressBar(
-                h.second / maxKB,
-                ImVec2(-1, 0),
-                (h.first + "  " + std::to_string((int)h.second) + " KB").c_str());
+        for (auto& h : hosts)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(h.first.c_str());
+            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", (int)h.second);
         }
+        ImGui::EndTable();
 
         ImGui::Separator();
 
+        // Top Flows Table
         ImGui::Text("Top Flows");
-        ImGui::BeginChild("Flows", ImVec2(0, upperHeight * 0.45f), true);
+        auto flows = GetTopFlows(6);
+        ImGui::BeginTable("FlowsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+        ImGui::TableSetupColumn("Src");
+        ImGui::TableSetupColumn("Dst");
+        ImGui::TableSetupColumn("KB");
+        ImGui::TableHeadersRow();
 
-        auto flows = GetTopFlows(5);
-        for (auto& f : flows) {
-            ImGui::Text(
-                "%s:%d ? %s:%d  (%llu KB)",
-                f.key.srcIP.c_str(),
-                f.key.srcPort,
-                f.key.dstIP.c_str(),
-                f.key.dstPort,
-                (f.stats.bytesUp + f.stats.bytesDown) / 1024);
+        for (auto& f : flows)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%s:%d", f.key.srcIP.c_str(), f.key.srcPort);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%s:%d", f.key.dstIP.c_str(), f.key.dstPort);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%llu", (f.stats.bytesUp + f.stats.bytesDown) / 1024);
         }
-
-        ImGui::EndChild();
+        ImGui::EndTable();
     }
 
     ImGui::Columns(1);
     ImGui::EndChild();
+    
+
+	// Debug Console (disabled by default)
+    /*
+    ImGui::Separator();
+    ImGui::Text("Debug Log");
+
+    ImGui::BeginChild("DebugLog", ImVec2(0, 150), true);
+
+    auto log = GetDebugLog();
+    for (const auto& line : log) {
+        ImGui::TextUnformatted(line.c_str());
+    }
+
+    ImGui::EndChild();
+    */
 
     ImGui::Separator();
 
@@ -202,7 +286,7 @@ void RenderGui(float dt)
     ImGui::BeginChild("Packets", ImVec2(0, packetListHeight), true,
         ImGuiWindowFlags_HorizontalScrollbar);
 
-    auto packets = GetRecentPackets(30);
+    auto packets = GetRecentPackets(100);
     for (int i = 0; i < (int)packets.size(); i++) {
         const auto& p = packets[i];
         ImGui::PushID(i);

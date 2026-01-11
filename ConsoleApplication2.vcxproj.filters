@@ -71,9 +71,6 @@
     <ClInclude Include="GUI.h">
       <Filter>Source Files\Gui</Filter>
     </ClInclude>
-    <ClInclude Include="Packet.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="imgui.h">
       <Filter>Source Files\ImGui</Filter>
     </ClInclude>
