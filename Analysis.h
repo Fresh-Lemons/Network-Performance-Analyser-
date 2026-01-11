@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <cstdint>
 #include <map>
+#include <optional>
 
 // ---------------- Packet ----------------
 struct Packet
@@ -23,6 +24,8 @@ struct Packet
     uint32_t tcpSeq = 0;
     uint32_t tcpAck = 0;
     uint32_t tcpPayloadLen = 0;
+    uint32_t tcpTsVal = 0;
+    uint32_t tcpTsEcr = 0;
 };
 
 #pragma pack(push, 1)
@@ -56,12 +59,13 @@ struct IcmpHeader {
 
 #pragma pack(pop)
 
-
 // ---------------- Metrics ----------------
 struct Metrics
 {
     uint64_t totalPackets = 0;
     uint64_t totalBytes = 0;
+    uint64_t totalBytesUp = 0;
+	uint64_t totalBytesDown = 0;
     double bps = 0.0;
     double pps = 0.0;
     double totalMB = 0.0;
@@ -69,6 +73,10 @@ struct Metrics
     double jitter = 0.0;
     double packetLoss = 0.0;
     double smoothedLatency = 0.0;
+    double nicBps = 0.0;
+    double linkSpeedBps = 0.0;
+    double captureVisibility = 0.0;
+	double timeElapsed = 0.0;
 };
 
 // ---------------- Flow ----------------
@@ -102,14 +110,14 @@ struct FlowStats
     uint64_t echoRequests = 0;
     uint64_t echoReplies = 0;
 
+    std::unordered_map<uint32_t, double> tcpTsSent;
+
     struct TcpOutstanding {
         double sendTime;
         uint32_t endSeq;
     };
-
     std::map<uint32_t, TcpOutstanding> tcpOutstanding;
 };
-
 
 struct Flow
 {
@@ -129,9 +137,12 @@ std::vector<Packet> GetRecentPackets(size_t maxCount);
 std::vector<float> GetLatencyHistory();
 std::vector<float> GetJitterHistory();
 std::vector<float> GetProtocolBandwidthHistory();
+std::vector<float> GetUpBpsHistory();
+std::vector<float> GetDownBpsHistory();
 double ComputeAverageJitter();
 double ComputeAverageLatency();
 double ComputePacketLoss();
+bool ResolveIfIndexFromPcapDevice(const std::string& devName);
 
 // Flow queries
 std::vector<Flow> GetTopFlows(size_t maxFlows);

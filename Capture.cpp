@@ -70,6 +70,35 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.protocol = "TCP";
         pkt.protocolId = IPPROTO_TCP;
         pkt.isOutbound = IsLocalIP(srcIP);
+
+        pkt.tcpTsVal = 0;
+        pkt.tcpTsEcr = 0;
+
+        const uint8_t* opt = l4 + 20;
+        int optLen = dataOffset - 20;
+
+        while (optLen >= 2) {
+            uint8_t kind = opt[0];
+
+            if (kind == 0) break;        // End of options
+            if (kind == 1) {             // NOP
+                opt++;
+                optLen--;
+                continue;
+            }
+
+            uint8_t len = opt[1];
+            if (len < 2 || len > optLen) break;
+
+            if (kind == 8 && len == 10) { // Timestamp option
+                pkt.tcpTsVal = ntohl(*(uint32_t*)(opt + 2));
+                pkt.tcpTsEcr = ntohl(*(uint32_t*)(opt + 6));
+                break;
+            }
+
+            opt += len;
+            optLen -= len;
+        }
     }
     else if (ipProto == 17 && header->caplen >= 14 + ihl + 4) { // UDP
         const u_char* l4 = ip + ihl;
@@ -126,14 +155,26 @@ static void CaptureLoop()
 bool StartCapture(int deviceIndex, const std::string& filter)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_running || deviceIndex < 0 || deviceIndex >= g_devices.size()) return false;
 
-    g_handle = pcap_open_live(g_devices[deviceIndex].name.c_str(), 65536, 1, 100, errbuf);
-    if (!g_handle) return false;
+    if (g_running)
+        return false;
 
-    // BPF filter
+    if (deviceIndex < 0 || deviceIndex >= (int)g_devices.size())
+        return false;
+
+    const std::string& devName = g_devices[deviceIndex].name;
+
+    // Resolve adapter BEFORE starting capture
+    if (!ResolveIfIndexFromPcapDevice(devName))
+        return false;
+
+    g_handle = pcap_open_live(devName.c_str(), 65536, 1, 100, errbuf);
+    if (!g_handle)
+        return false;
+
+    // Apply BPF filter
     if (!filter.empty()) {
-        bpf_program fp;
+        bpf_program fp{};
         if (pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN) == 0) {
             pcap_setfilter(g_handle, &fp);
             pcap_freecode(&fp);
@@ -142,18 +183,35 @@ bool StartCapture(int deviceIndex, const std::string& filter)
 
     g_running = true;
     g_captureThread = std::thread(CaptureLoop);
+
     return true;
 }
 
 // ---------------- Stop Capture ----------------
 void StopCapture()
 {
+    pcap_t* handleToClose = nullptr;
+
     {
         std::lock_guard<std::mutex> lock(g_mutex);
+
+        if (!g_running)
+            return;
+
         g_running = false;
+
+        if (g_handle) {
+            pcap_breakloop(g_handle);
+            handleToClose = g_handle;
+            g_handle = nullptr;
+        }
     }
+
     if (g_captureThread.joinable())
         g_captureThread.join();
+
+    if (handleToClose)
+        pcap_close(handleToClose);
 }
 
 // ---------------- Is Capturing ----------------

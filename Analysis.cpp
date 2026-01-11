@@ -6,6 +6,22 @@
 #include <algorithm>
 #include <chrono>
 #include <numeric>
+#include <iphlpapi.h>
+#include <windows.h>
+#include <iostream>
+#include <vector>
+#include <string>
+
+#pragma comment(lib, "Ole32.lib")
+#pragma comment(lib, "iphlpapi.lib")
+
+struct AdapterInfo {
+    std::string FriendlyName;
+    std::string Description;
+    std::string MacAddress;
+    uint64_t LinkSpeed;
+	ULONG IfIndex;
+};
 
 static std::mutex g_mutex;
 static std::deque<std::string> g_debugLog;
@@ -18,12 +34,193 @@ constexpr size_t MAX_PACKETS = 50000;
 // ---------------- Metrics ----------------
 static Metrics g_metrics;
 static std::deque<float> g_bpsHistory(300, 0.0f);
+static std::deque<float> g_upBpsHistory(300, 0.0f);
+static std::deque<float> g_downBpsHistory(300, 0.0f);
 static std::deque<float> g_ppsHistory(300, 0.0f);
-static std::deque<float> g_latencyHistory(300, 0.0f);
-static std::deque<float> g_jitterHistory(300, 0.0f);
+static uint64_t lastNicIn = 0;
+static uint64_t lastNicOut = 0;
 
-// ---------------- Flow storage ----------------
 static std::unordered_map<size_t, Flow> g_flows;
+
+std::optional<AdapterInfo> g_physicalAdapter;
+ULONG g_activeIfIndex = 0;
+std::optional<GUID> g_activeAdapterGuid;
+
+
+static void DebugLog(const std::string& s)
+{
+    g_debugLog.push_back(s);
+    if (g_debugLog.size() > MAX_DEBUG_LINES)
+        g_debugLog.pop_front();
+}
+
+std::string WideStringToUtf8(const std::wstring& wstr) {
+    if (wstr.empty()) return std::string();
+
+    // Get the size needed for the UTF-8 string
+    int size_needed = WideCharToMultiByte(
+        CP_UTF8,            // convert to UTF-8
+        0,                  // no special flags
+        wstr.c_str(),       // input wide string
+        (int)wstr.length(), // length of input
+        nullptr, 0,         // no output buffer yet
+        nullptr, nullptr
+    );
+
+    std::string result(size_needed, 0);
+
+    // Perform the actual conversion
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wstr.c_str(),
+        (int)wstr.length(),
+        &result[0],
+        size_needed,
+        nullptr, nullptr
+    );
+
+    return result;
+}
+
+std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty())
+        return {};
+
+    int size = MultiByteToWideChar(
+        CP_UTF8,
+        0,
+        s.c_str(),
+        (int)s.size(),
+        nullptr,
+        0
+    );
+
+    std::wstring result(size, 0);
+    MultiByteToWideChar(
+        CP_UTF8,
+        0,
+        s.c_str(),
+        (int)s.size(),
+        &result[0],
+        size
+    );
+
+    return result;
+}
+
+std::vector<AdapterInfo> GetAdapters()
+{
+    std::vector<AdapterInfo> adapters;
+    g_physicalAdapter.reset(); // important
+
+    ULONG outBufLen = 0;
+    DWORD dwRetVal = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, nullptr, &outBufLen);
+    if (dwRetVal != ERROR_BUFFER_OVERFLOW)
+        return adapters;
+
+    std::vector<BYTE> buffer(outBufLen);
+    auto* pAddresses =
+        reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
+
+    dwRetVal = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, pAddresses, &outBufLen);
+    if (dwRetVal != NO_ERROR)
+        return adapters;
+
+    for (auto* pCurr = pAddresses; pCurr; pCurr = pCurr->Next)
+    {
+        AdapterInfo adapter{};
+
+        adapter.FriendlyName = WideStringToUtf8(pCurr->FriendlyName);
+        adapter.Description = WideStringToUtf8(pCurr->Description);
+        adapter.IfIndex = pCurr->IfIndex;
+
+        if (pCurr->TransmitLinkSpeed > 0 &&
+            pCurr->TransmitLinkSpeed != UINT64_MAX)
+        {
+            adapter.LinkSpeed = pCurr->TransmitLinkSpeed;
+        }
+
+        char macAddr[18] = {};
+        for (ULONG i = 0; i < pCurr->PhysicalAddressLength; ++i)
+        {
+            sprintf_s(macAddr + i * 3, sizeof(macAddr) - i * 3,
+                (i + 1 == pCurr->PhysicalAddressLength) ? "%02X" : "%02X-",
+                pCurr->PhysicalAddress[i]);
+        }
+        adapter.MacAddress = macAddr;
+
+        if (g_activeAdapterGuid)
+        {
+            GUID winGuid{};
+            if (ConvertInterfaceLuidToGuid(&pCurr->Luid, &winGuid) == NO_ERROR)
+            {
+                if (IsEqualGUID(winGuid, *g_activeAdapterGuid))
+                {
+                    g_physicalAdapter = adapter;
+                }
+            }
+        }
+        char dbg[256];
+        snprintf(dbg, sizeof(dbg),
+            "[ADAPTER] IfIndex=%lu Name=%s LinkSpeed=%llu\n",
+            pCurr->IfIndex,
+            adapter.FriendlyName.c_str(),
+            (unsigned long long)pCurr->TransmitLinkSpeed);
+        DebugLog(dbg);
+        DebugLog("[PCAP] Active IfIndex=" + std::to_string(g_activeIfIndex));
+
+        adapters.push_back(std::move(adapter));
+
+    }
+
+    return adapters;
+}
+
+
+bool ExtractGuidFromNpcapName(const std::string& name, GUID& guid) {
+    size_t start = name.find('{');
+    size_t end = name.find('}');
+    if (start == std::string::npos || end == std::string::npos)
+        return false;
+
+    std::wstring wguid = Utf8ToWide(name.substr(start, end - start + 1));
+    return CLSIDFromString(wguid.c_str(), &guid) == S_OK;
+}
+
+bool ResolveIfIndexFromPcapDevice(const std::string& devName) {
+    GUID guid{};
+    if (!ExtractGuidFromNpcapName(devName, guid))
+        return false;
+
+    NET_LUID luid{};
+    if (ConvertInterfaceGuidToLuid(&guid, &luid) != NO_ERROR)
+        return false;
+
+    NET_IFINDEX ifIndex{};
+    if (ConvertInterfaceLuidToIndex(&luid, &ifIndex) != NO_ERROR)
+        return false;
+
+    g_activeIfIndex = ifIndex;
+    g_activeAdapterGuid = guid;
+    GetAdapters();
+    return true;
+}
+
+bool GetNicBytes(NET_IFINDEX ifIndex,
+    uint64_t& inBytes,
+    uint64_t& outBytes)
+{
+    MIB_IF_ROW2 row{};
+    row.InterfaceIndex = ifIndex;
+
+    if (GetIfEntry2(&row) != NO_ERROR)
+        return false;
+
+    inBytes = row.InOctets;
+    outBytes = row.OutOctets;
+    return true;
+}
 
 // ---------------- Time ----------------
 static double Now()
@@ -43,13 +240,6 @@ static size_t HashFlow(const FlowKey& k)
     h ^= std::hash<uint16_t>()(k.dstPort) << 3;
     h ^= std::hash<uint8_t>()(k.protocol) << 4;
     return h;
-}
-
-static void DebugLog(const std::string& s)
-{
-    g_debugLog.push_back(s);
-    if (g_debugLog.size() > MAX_DEBUG_LINES)
-        g_debugLog.pop_front();
 }
 
 // ---------------- Flow update ----------------
@@ -100,48 +290,70 @@ static void UpdateFlows(const Packet& pkt)
     if (!pkt.isOutbound) {
         flow.stats.bytesDown += pkt.length;
         flow.stats.packetsDown++;
+        g_metrics.totalBytesDown += pkt.length;
     }
     else {
         flow.stats.bytesUp += pkt.length;
         flow.stats.packetsUp++;
-    }
-    if (pkt.protocol == "TCP") {
-        char buf[256];
-        snprintf(buf, sizeof(buf),
-            "TCP %s src=%s:%u dst=%s:%u seq=%u ack=%u payload=%u",
-            pkt.isOutbound ? "OUT" : "IN",
-            pkt.srcIP.c_str(), pkt.srcPort,
-            pkt.dstIP.c_str(), pkt.dstPort,
-            pkt.tcpSeq,
-            pkt.tcpAck,
-            pkt.tcpPayloadLen
-        );
-        DebugLog(buf);
+        g_metrics.totalBytesUp += pkt.length;
     }
 
     if (pkt.protocol == "TCP") {
         auto& stats = flow.stats;
         double now = Now();
 
-        if (pkt.isOutbound && pkt.tcpPayloadLen > 0) {
-            uint32_t endSeq = pkt.tcpSeq + pkt.tcpPayloadLen;
-            stats.tcpOutstanding[endSeq] = { now, endSeq };
+        bool usedTimestamp = false;
+
+        // TCP TIMESTAMP-BASED RTT
+        if (pkt.tcpTsVal != 0 || pkt.tcpTsEcr != 0) {
+
+            if (pkt.isOutbound && pkt.tcpTsVal != 0) {
+                stats.tcpTsSent[pkt.tcpTsVal] = now;
+            }
+
+            if (!pkt.isOutbound && pkt.tcpTsEcr != 0) {
+                auto it = stats.tcpTsSent.find(pkt.tcpTsEcr);
+                if (it != stats.tcpTsSent.end()) {
+                    double rttMs = (now - it->second) * 1000.0;
+                    stats.latencyHistory.push_back(rttMs);
+
+                    if (stats.latencyHistory.size() >= 2) {
+                        double prev =
+                            stats.latencyHistory[stats.latencyHistory.size() - 2];
+                        stats.jitterHistory.push_back(std::abs(rttMs - prev));
+                    }
+
+                    stats.tcpTsSent.erase(it);
+                    usedTimestamp = true;
+                }
+            }
         }
 
-        if (!pkt.isOutbound && pkt.tcpAck != 0) {
-            auto it = stats.tcpOutstanding.upper_bound(pkt.tcpAck);
-            if (it != stats.tcpOutstanding.begin()) {
-                --it;
+        // SEQ/ACK RTT (fallback only)
+        if (!usedTimestamp) {
 
-                double rttMs = (now - it->second.sendTime) * 1000.0;
-                stats.latencyHistory.push_back(rttMs);
+            // outbound data
+            if (pkt.isOutbound && pkt.tcpPayloadLen > 0) {
+                uint32_t endSeq = pkt.tcpSeq + pkt.tcpPayloadLen;
+                stats.tcpOutstanding[endSeq] = { now, endSeq };
+            }
 
-                if (stats.latencyHistory.size() >= 2) {
-                    double prev = stats.latencyHistory[stats.latencyHistory.size() - 2];
-                    stats.jitterHistory.push_back(std::abs(rttMs - prev));
+            // inbound ACK
+            if (!pkt.isOutbound && pkt.tcpAck != 0) {
+                auto it = stats.tcpOutstanding.upper_bound(pkt.tcpAck);
+                if (it != stats.tcpOutstanding.begin()) {
+                    --it;
+
+                    double rttMs = (now - it->second.sendTime) * 1000.0;
+                    stats.latencyHistory.push_back(rttMs);
+
+                    if (stats.latencyHistory.size() >= 2) {
+                        double prev = stats.latencyHistory[stats.latencyHistory.size() - 2];
+                        stats.jitterHistory.push_back(std::abs(rttMs - prev));
+                    }
+
+                    stats.tcpOutstanding.erase(it);
                 }
-
-                stats.tcpOutstanding.erase(it);
             }
         }
     }
@@ -208,33 +420,92 @@ void UpdateMetrics(double dt)
 
     static uint64_t lastBytes = 0;
     static uint64_t lastPackets = 0;
+    static uint64_t lastUp = 0;
+    static uint64_t lastDown = 0;
 
     uint64_t bytes = g_metrics.totalBytes;
     uint64_t packets = g_metrics.totalPackets;
-    double avgLatency = ComputeAverageLatency();
-    double avgJitter = ComputeAverageJitter();
+    uint64_t up = g_metrics.totalBytesUp;
+    uint64_t down = g_metrics.totalBytesDown;
 
     double bps = (bytes - lastBytes) / dt;
     double pps = (packets - lastPackets) / dt;
+    double upBps = (up - lastUp) / dt;
+    double downBps = (down - lastDown) / dt;
 
     lastBytes = bytes;
     lastPackets = packets;
+    lastUp = up;
+    lastDown = down;
 
     if (g_bpsHistory.size() >= 300) g_bpsHistory.pop_front();
     if (g_ppsHistory.size() >= 300) g_ppsHistory.pop_front();
-    if (g_latencyHistory.size() >= 300) g_latencyHistory.pop_front();
-    if (g_jitterHistory.size() >= 300) g_jitterHistory.pop_front();
+    if (g_upBpsHistory.size() >= 300) g_upBpsHistory.pop_front();
+    if (g_downBpsHistory.size() >= 300) g_downBpsHistory.pop_front();
 
     g_bpsHistory.push_back((float)bps);
     g_ppsHistory.push_back((float)pps);
-    g_latencyHistory.push_back((float)avgLatency);
-    g_jitterHistory.push_back((float)avgJitter);
+    g_upBpsHistory.push_back((float)upBps);
+    g_downBpsHistory.push_back((float)downBps);
 
+    g_metrics.timeElapsed += dt;
     g_metrics.bps = bps;
     g_metrics.pps = pps;
-    g_metrics.lastLatency = avgLatency;
-    g_metrics.jitter = avgJitter;
+    g_metrics.lastLatency = ComputeAverageLatency();
+    g_metrics.jitter = ComputeAverageJitter();
     g_metrics.packetLoss = ComputePacketLoss();
+
+    uint64_t nicIn = 0, nicOut = 0;
+    bool nicOk = GetNicBytes(g_activeIfIndex, nicIn, nicOut);
+
+    double nicBps = 0.0;
+    if (nicOk && lastNicIn != 0) {
+        uint64_t nicDelta = (nicIn + nicOut) - (lastNicIn + lastNicOut);
+        nicBps = nicDelta / dt;
+    }
+
+    lastNicIn = nicIn;
+    lastNicOut = nicOut;
+    g_metrics.nicBps = nicBps;
+    double visibility = 0.0;
+    if (nicBps > 0.0) {
+        visibility = bps / nicBps;
+    }
+    g_metrics.captureVisibility = visibility;
+    g_metrics.linkSpeedBps =
+        (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0)
+        ? (double)g_physicalAdapter->LinkSpeed
+        : 0.0;
+
+    static uint64_t lastTotalBytes = 0;
+    uint64_t totalBytes = g_metrics.totalBytes;
+    uint64_t bytesDelta = totalBytes - lastTotalBytes;
+    lastTotalBytes = totalBytes;
+
+    double bbps = bytesDelta / dt;          // bytes/sec
+    double mbps = bbps * 8.0 / 1e6;        // megabits/sec
+    double bpsObserved = bytesDelta / dt;         // bytes/sec
+    double mbpsObserved = (bytesDelta * 8.0) / (dt * 1e6);
+    double mbpsLink = 0.0;
+    if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
+        mbpsLink = g_physicalAdapter->LinkSpeed / 1e6;
+    }
+
+    std::string linkSpeedStr = "unknown";
+    if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
+        linkSpeedStr = std::to_string(g_physicalAdapter->LinkSpeed / 1e6) + " Mbps";
+    }
+
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "[METRICS] Adapter='%s'  dt=%.3f  bytesDelta=%llu  Observed=%.2f Mbps  LinkSpeed=%s\n",
+        g_physicalAdapter ? g_physicalAdapter->FriendlyName.c_str() : "unknown",
+        dt,
+        (unsigned long long)bytesDelta,
+        mbpsObserved,
+        linkSpeedStr.c_str()
+    );
+    DebugLog(buf);
 }
 
 // ---------------- GUI getters ----------------
@@ -291,8 +562,6 @@ double ComputeAverageJitter() {
     return count ? (total / count) : 0.0;
 }
 
-
-
 double ComputePacketLoss() {
     uint64_t sent = 0, recv = 0;
     for (auto& [_, f] : g_flows) {
@@ -332,6 +601,18 @@ std::vector<float> GetPacketLossHistory()
             history.push_back(static_cast<float>(val));
     }
     return history;
+}
+
+std::vector<float> GetUpBpsHistory()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_upBpsHistory.begin(), g_upBpsHistory.end() };
+}
+
+std::vector<float> GetDownBpsHistory()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_downBpsHistory.begin(), g_downBpsHistory.end() };
 }
 
 
