@@ -92,7 +92,6 @@ void PlotBandwidthStacked(
 
         ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
         ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
-        ImVec2 bl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Min);
 
         draw->AddText(
             ImVec2(tl.x + 6, tl.y + 6),
@@ -140,39 +139,196 @@ void PlotBandwidthStacked(
     }
 }
 
+void PlotProtocolStacked(const std::vector<Protocols>& hist)
+{
+    if (hist.empty())
+        return;
+
+    static std::vector<float> tcp, udp, dns, icmp, other, total;
+
+    const int n = (int)hist.size();
+
+    tcp.resize(n);
+    udp.resize(n);
+    dns.resize(n);
+    icmp.resize(n);
+    other.resize(n);
+    total.resize(n);
+
+    float maxRate = 0.0f;
+
+    for (int i = 0; i < n; ++i) {
+        tcp[i] = hist[i].tcpBytes;
+        udp[i] = tcp[i] + hist[i].udpBytes;
+        icmp[i] = udp[i] + hist[i].icmpBytes;
+        other[i] = icmp[i] + hist[i].otherBytes;
+        total[i] = other[i];
+
+        maxRate = std::max(maxRate, total[i]);
+    }
+
+    ImPlot::PushStyleVar(ImPlotStyleVar_PlotPadding, ImVec2(0, 0));
+    ImPlot::PushStyleVar(ImPlotStyleVar_LabelPadding, ImVec2(0, 0));
+
+    if (ImPlot::BeginPlot(
+        "Protocol",
+        ImVec2(-1, ImGui::GetContentRegionAvail().y / 2),
+        ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
+    {
+        ImPlot::SetupAxes(
+            nullptr, nullptr,
+            ImPlotAxisFlags_NoDecorations,
+            ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit
+        );
+
+        // 30-second window (assuming 5 Hz sampling ? 150 points)
+        ImPlot::SetupAxisLimits(ImAxis_X1, n - 150, n, ImGuiCond_Always);
+        ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxRate * 1.1f, ImGuiCond_Always);
+
+        // --- Stacked areas ---
+        ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.30f, 0.55f, 0.90f, 0.7f));
+        ImPlot::PlotShaded("TCP", tcp.data(), n, 0);
+        ImPlot::PopStyleColor();
+
+        ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.30f, 0.85f, 0.45f, 0.7f));
+        ImPlot::PlotShaded("UDP", udp.data(), n, 0);
+        ImPlot::PopStyleColor();
+
+        ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.85f, 0.40f, 0.40f, 0.7f));
+        ImPlot::PlotShaded("ICMP", icmp.data(), n, 0);
+        ImPlot::PopStyleColor();
+
+        ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.60f, 0.60f, 0.60f, 0.7f));
+        ImPlot::PlotShaded("Other", other.data(), n, 0);
+        ImPlot::PopStyleColor();
+
+        // --- Overlays ---
+        ImPlotRect limits = ImPlot::GetPlotLimits();
+        ImDrawList* draw = ImPlot::GetPlotDrawList();
+
+        ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
+        ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
+
+        draw->AddText(
+            ImVec2(tl.x + 6, tl.y + 6),
+            IM_COL32(200, 200, 200, 255),
+            "Protocol bandwidth"
+        );
+
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%.1f KB/s", maxRate);
+
+        draw->AddText(
+            ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6),
+            IM_COL32(200, 200, 200, 255),
+            buf
+        );
+
+        // Bottom labels
+        ImPlot::PlotText("30", limits.X.Min, limits.Y.Min, ImVec2(10, -8));
+        ImPlot::PlotText("0", limits.X.Max, limits.Y.Min, ImVec2(-10, -8));
+
+        // Hover cursor
+        if (ImPlot::IsPlotHovered()) {
+            ImPlotPoint mouse = ImPlot::GetPlotMousePos();
+            double x[2] = { mouse.x, mouse.x };
+            double y[2] = { 0, maxRate };
+
+            ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(1, 1, 1, 0.25f));
+            ImPlot::PlotLine("##cursor", x, y, 2);
+            ImPlot::PopStyleColor();
+
+            int idx = (int)std::round(mouse.x);
+            if (idx >= 0 && idx < n) {
+                ImGui::BeginTooltip();
+                ImGui::Text("TCP:   %.1f KB/s", hist[idx].tcpBytes);
+                ImGui::Text("UDP:   %.1f KB/s", hist[idx].udpBytes);
+                ImGui::Text("ICMP:  %.1f KB/s", hist[idx].icmpBytes);
+                ImGui::Text("Other: %.1f KB/s", hist[idx].otherBytes);
+                ImGui::EndTooltip();
+            }
+        }
+
+        ImPlot::EndPlot();
+    }
+
+    ImPlot::PopStyleVar(2);
+}
+
 void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
 {
     if (latencyMs.empty())
         return;
 
     const int n = (int)latencyMs.size();
+    const int window = 150;
+    const int start = n > window ? n - window : 0;
+    const int count = n - start;
 
     if (ImPlot::BeginPlot(
-        "latency",
+        "Latency (ms)",
         ImVec2(-1, graphHeight),
         ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
-        ImPlot::SetupAxes(
-            nullptr, nullptr,
+        ImPlot::SetupAxes(nullptr, nullptr,
             ImPlotAxisFlags_NoTickLabels,
             ImPlotAxisFlags_AutoFit);
 
-        // X axis = time buckets (latest on the right)
-        ImPlot::SetupAxisLimits(ImAxis_X1, 0, 30, ImGuiCond_Always);
+        ImPlot::SetupAxisLimits(ImAxis_X1, 0, count, ImGuiCond_Always);
 
         ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(0.9f, 0.7f, 0.2f, 1.0f));
-        ImPlot::PlotLine("Latency",latencyMs.data(),n);
+        ImPlot::PlotLine("Latency", latencyMs.data() + start, count);
         ImPlot::PopStyleColor();
 
-        // Hover tooltip
         if (ImPlot::IsPlotHovered())
         {
             ImPlotPoint p = ImPlot::GetPlotMousePos();
-            int idx = (int)p.x;
-            if (idx >= 0 && idx < n && !std::isnan(latencyMs[idx]))
+            int idx = start + (int)p.x;
+            if (idx >= 0 && idx < n && std::isfinite(latencyMs[idx]))
             {
                 ImGui::BeginTooltip();
                 ImGui::Text("Latency: %.1f ms", latencyMs[idx]);
+                ImGui::EndTooltip();
+            }
+        }
+
+        ImPlot::EndPlot();
+    }
+}
+
+void PlotJitter(const std::vector<float>& jitterMs, float graphHeight)
+{
+    if (jitterMs.empty())
+        return;
+
+    const int n = (int)jitterMs.size();
+    const int window = 150;
+    const int start = n > window ? n - window : 0;
+    const int count = n - start;
+
+    if (ImPlot::BeginPlot(
+        "Jitter (ms)",
+        ImVec2(-1, graphHeight),
+        ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
+    {
+        ImPlot::SetupAxes(nullptr, nullptr,
+            ImPlotAxisFlags_NoTickLabels,
+            ImPlotAxisFlags_AutoFit);
+
+        ImPlot::SetupAxisLimits(ImAxis_X1, 0, count, ImGuiCond_Always);
+
+        ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(0.9f, 0.7f, 0.2f, 1.0f));
+        ImPlot::PlotLine("Jitter", jitterMs.data() + start, count);
+        ImPlot::PopStyleColor();
+
+        if (ImPlot::IsPlotHovered())
+        {
+            ImPlotPoint p = ImPlot::GetPlotMousePos();
+            int idx = start + (int)p.x;
+            if (idx >= 0 && idx < n && std::isfinite(jitterMs[idx]))
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text("Jitter: %.1f ms", jitterMs[idx]);
                 ImGui::EndTooltip();
             }
         }
@@ -211,6 +367,10 @@ void RenderGui(float dt)
     }
 
     Metrics m = GetMetrics();
+
+    int totalSeconds = (int)m.timeElapsed;
+    int minutes = totalSeconds / 60;
+    int seconds = totalSeconds % 60;
 
     ImGuiIO& io = ImGui::GetIO();
     if (io.DisplaySize.x <= 0.0f || io.DisplaySize.y <= 0.0f)
@@ -285,7 +445,7 @@ void RenderGui(float dt)
     ImGui::NextColumn();
     ImGui::Text("Total Data\n%.2f MB", m.totalMB);
 	ImGui::NextColumn();
-    ImGui::Text("Average Latency\n%.1f ms", m.lastLatency);
+    ImGui::Text("Average Latency\n%.1f ms", ComputeAverageLatency());
     ImGui::NextColumn();
     ImGui::Text("Jitter\n%.1f ms", m.jitter);
     ImGui::NextColumn();
@@ -300,7 +460,7 @@ void RenderGui(float dt)
     ImGui::NextColumn();
     ImGui::Text("Link Speed\n%.0f MB/s", m.linkSpeedBps / 1e6);
     ImGui::NextColumn();
-    ImGui::Text("Time elapsed\n%.0f s", m.timeElapsed);
+    ImGui::Text("Time elapsed\n%02d:%02d", minutes, seconds);
     ImGui::NextColumn();
 
     ImGui::Columns(1);
@@ -344,17 +504,7 @@ void RenderGui(float dt)
         // -------- Top-right: Bandwidth by Protocol --------
         ImGui::TableSetColumnIndex(1);
         {
-            ImGui::Text("Bandwidth by Protocol");
-            auto protoBps = GetProtocolBandwidthHistory();
-            ImGui::PlotLines(
-                "##bw_proto",
-                protoBps.data(),
-                (int)protoBps.size(),
-                0,
-                nullptr,
-                0,
-                FLT_MAX,
-                ImVec2(-1, graphHeight));
+            PlotProtocolStacked(GetProtocolBandwidthHistory());
         }
 
         ImGui::TableNextRow();
@@ -368,17 +518,7 @@ void RenderGui(float dt)
         // -------- Bottom-right: Reserved --------
         ImGui::TableSetColumnIndex(1);
         {
-            ImGui::Text("Jitter");
-            auto jitter = GetJitterHistory();
-            ImGui::PlotLines(
-                "##jitter",
-                jitter.data(),
-                (int)jitter.size(),
-                0,
-                nullptr,
-                0,
-                FLT_MAX,
-                ImVec2(-1, graphHeight));
+            PlotJitter(GetJitterHistory(), graphHeight);
         }
 
         ImGui::EndTable();

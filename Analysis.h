@@ -125,6 +125,14 @@ struct Flow
     FlowStats stats;
 };
 
+struct Protocols {
+    float tcpBytes;
+    float udpBytes;
+    float icmpBytes;
+    float otherBytes;
+};
+
+
 // ---------------- Analysis API ----------------
 void ProcessPacket(const Packet& pkt);
 void UpdateMetrics(double dt);
@@ -136,7 +144,7 @@ std::vector<float> GetPpsHistory();
 std::vector<Packet> GetRecentPackets(size_t maxCount);
 std::vector<float> GetLatencyHistory();
 std::vector<float> GetJitterHistory();
-std::vector<float> GetProtocolBandwidthHistory();
+std::vector<Protocols> GetProtocolBandwidthHistory();
 std::vector<float> GetUpBpsHistory();
 std::vector<float> GetDownBpsHistory();
 double ComputeAverageJitter();
@@ -149,3 +157,4 @@ std::vector<Flow> GetTopFlows(size_t maxFlows);
 std::vector<std::pair<std::string, float>> GetTopHosts(size_t maxHosts);
 // Debug log
 std::vector<std::string> GetDebugLog();
+extern Protocols g_currentProtocolBytes;

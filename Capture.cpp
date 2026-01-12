@@ -37,13 +37,34 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     if (!header || !data) return;
 
     Packet pkt{};
+    Protocols& cur = g_currentProtocolBytes;
     pkt.length = header->len;
     pkt.rawData.assign(data, data + header->len);
+    const u_char* l3 = data + 14;
 
     // minimal parsing (Ethernet + IPv4 + TCP/UDP)
     if (header->caplen < 14 + 20) return;
     uint16_t ethType = (data[12] << 8) | data[13];
-    if (ethType != 0x0800) return; // IPv4 only
+    if (ethType == 0x86DD) { // IPv6
+        if (header->caplen < 14 + 40)
+            return;
+
+        uint8_t nextHeader = l3[6];
+        uint16_t payloadLen = ntohs(*(uint16_t*)(l3 + 4));
+
+        if (nextHeader == IPPROTO_TCP && payloadLen >= 20) {
+            cur.tcpBytes += payloadLen - 20;
+        }
+        else if (nextHeader == IPPROTO_UDP && payloadLen >= 8) {
+            cur.udpBytes += payloadLen - 8;
+        }
+        else if (nextHeader == IPPROTO_ICMPV6) {
+            cur.icmpBytes += payloadLen;
+        }
+        else {
+            cur.otherBytes += payloadLen;
+        }
+    }
 
     const u_char* ip = data + 14;
     uint8_t ihl = (ip[0] & 0x0F) * 4;
@@ -67,6 +88,7 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         uint16_t ipTotalLen = ntohs(*(uint16_t*)(ip + 2));
         uint32_t payloadLen = ipTotalLen - ihl - dataOffset;
         pkt.tcpPayloadLen = payloadLen;
+        cur.tcpBytes += payloadLen;
         pkt.protocol = "TCP";
         pkt.protocolId = IPPROTO_TCP;
         pkt.isOutbound = IsLocalIP(srcIP);
@@ -104,11 +126,18 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         const u_char* l4 = ip + ihl;
         pkt.srcPort = ntohs(*(uint16_t*)(l4 + 0));
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
+        uint16_t udpLen = ntohs(*(uint16_t*)(l4 + 4));
+        uint16_t payloadLen = udpLen >= 8 ? udpLen - 8 : 0;
+        cur.udpBytes += payloadLen;
         pkt.protocol = "UDP";
     }
     else if (ipProto == IPPROTO_ICMP && header->caplen >= 14 + ihl + sizeof(IcmpHeader)) {
         pkt.protocol = "ICMP";
         pkt.protocolId = IPPROTO_ICMP;
+        uint16_t ipTotalLen = ntohs(*(uint16_t*)(ip + 2));
+        uint16_t payloadLen = ipTotalLen - ihl - sizeof(IcmpHeader);
+        if (payloadLen > 0)
+            cur.icmpBytes += payloadLen;
 
         const IcmpHeader* icmp =
             reinterpret_cast<const IcmpHeader*>(ip + ihl);
@@ -117,6 +146,10 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.icmpId = ntohs(icmp->identifier);
         pkt.icmpSeq = ntohs(icmp->sequence);
         pkt.isOutbound = (pkt.icmpType == 8);
+    }
+    else {
+        cur.otherBytes += header->len;
+        return;
     }
 
     // send packet to Analysis

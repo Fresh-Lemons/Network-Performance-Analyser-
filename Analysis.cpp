@@ -37,8 +37,14 @@ static std::deque<float> g_bpsHistory(300, 0.0f);
 static std::deque<float> g_upBpsHistory(300, 0.0f);
 static std::deque<float> g_downBpsHistory(300, 0.0f);
 static std::deque<float> g_ppsHistory(300, 0.0f);
+static std::deque<float> g_latencyHistory(300, 0.0f);
+static std::deque<float> g_jitterHistory(300, 0.0f);
+static std::deque<Protocols> g_protocolHistory(300, Protocols{0,0,0,0});
+static double lastLatency = 0;
 static uint64_t lastNicIn = 0;
 static uint64_t lastNicOut = 0;
+Protocols g_currentProtocolBytes;
+
 
 static std::unordered_map<size_t, Flow> g_flows;
 
@@ -265,13 +271,7 @@ static void UpdateFlows(const Packet& pkt)
         }
     }
     else {
-        key = {
-            pkt.srcIP,
-            pkt.dstIP,
-            pkt.srcPort,
-            pkt.dstPort,
-            pkt.protocolId
-        };
+        key = { pkt.srcIP, pkt.dstIP, pkt.srcPort, pkt.dstPort, pkt.protocolId };
     }
 
     size_t h = HashFlow(key);
@@ -315,13 +315,7 @@ static void UpdateFlows(const Packet& pkt)
                 auto it = stats.tcpTsSent.find(pkt.tcpTsEcr);
                 if (it != stats.tcpTsSent.end()) {
                     double rttMs = (now - it->second) * 1000.0;
-                    stats.latencyHistory.push_back(rttMs);
-
-                    if (stats.latencyHistory.size() >= 2) {
-                        double prev =
-                            stats.latencyHistory[stats.latencyHistory.size() - 2];
-                        stats.jitterHistory.push_back(std::abs(rttMs - prev));
-                    }
+					g_metrics.lastLatency = rttMs;
 
                     stats.tcpTsSent.erase(it);
                     usedTimestamp = true;
@@ -345,12 +339,7 @@ static void UpdateFlows(const Packet& pkt)
                     --it;
 
                     double rttMs = (now - it->second.sendTime) * 1000.0;
-                    stats.latencyHistory.push_back(rttMs);
-
-                    if (stats.latencyHistory.size() >= 2) {
-                        double prev = stats.latencyHistory[stats.latencyHistory.size() - 2];
-                        stats.jitterHistory.push_back(std::abs(rttMs - prev));
-                    }
+                    g_metrics.lastLatency = rttMs;
 
                     stats.tcpOutstanding.erase(it);
                 }
@@ -417,6 +406,7 @@ void ProcessPacket(const Packet& pkt)
 void UpdateMetrics(double dt)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
+    Protocols protocolBytes;
 
     static uint64_t lastBytes = 0;
     static uint64_t lastPackets = 0;
@@ -432,28 +422,52 @@ void UpdateMetrics(double dt)
     double pps = (packets - lastPackets) / dt;
     double upBps = (up - lastUp) / dt;
     double downBps = (down - lastDown) / dt;
+    float latencyMs = g_metrics.lastLatency;
+    float jitterMs = g_metrics.jitter;
+    if (!std::isfinite(latencyMs))
+        latencyMs = NAN;
+    if (!std::isfinite(jitterMs))
+        jitterMs = NAN;
+
 
     lastBytes = bytes;
     lastPackets = packets;
     lastUp = up;
     lastDown = down;
+    double delta = std::abs(latencyMs - lastLatency);
+    jitterMs = 0.9 * jitterMs + 0.1 * delta;
+	lastLatency = latencyMs;
+
+	protocolBytes.tcpBytes = g_currentProtocolBytes.tcpBytes / 1024;
+	protocolBytes.udpBytes = g_currentProtocolBytes.udpBytes / 1024;
+	protocolBytes.icmpBytes = g_currentProtocolBytes.icmpBytes / 1024;
+	protocolBytes.otherBytes = g_currentProtocolBytes.otherBytes / 1024;
+
+    double protoSum = protocolBytes.tcpBytes + protocolBytes.udpBytes + protocolBytes.icmpBytes + protocolBytes.otherBytes;
 
     if (g_bpsHistory.size() >= 300) g_bpsHistory.pop_front();
     if (g_ppsHistory.size() >= 300) g_ppsHistory.pop_front();
     if (g_upBpsHistory.size() >= 300) g_upBpsHistory.pop_front();
     if (g_downBpsHistory.size() >= 300) g_downBpsHistory.pop_front();
+    if (g_latencyHistory.size() >= 50) g_latencyHistory.pop_front();
+    if (g_jitterHistory.size() >= 50) g_jitterHistory.pop_front();
+	if (g_protocolHistory.size() >= 300) g_protocolHistory.pop_front();
 
     g_bpsHistory.push_back((float)bps);
     g_ppsHistory.push_back((float)pps);
     g_upBpsHistory.push_back((float)upBps);
     g_downBpsHistory.push_back((float)downBps);
+    g_latencyHistory.push_back((float)latencyMs);
+    g_jitterHistory.push_back((float)jitterMs);
+	g_protocolHistory.push_back(protocolBytes);
 
     g_metrics.timeElapsed += dt;
     g_metrics.bps = bps;
     g_metrics.pps = pps;
-    g_metrics.lastLatency = ComputeAverageLatency();
-    g_metrics.jitter = ComputeAverageJitter();
+	g_metrics.lastLatency = latencyMs;
+    g_metrics.jitter = jitterMs;
     g_metrics.packetLoss = ComputePacketLoss();
+	g_currentProtocolBytes = { 0,0,0,0 };
 
     uint64_t nicIn = 0, nicOut = 0;
     bool nicOk = GetNicBytes(g_activeIfIndex, nicIn, nicOut);
@@ -498,12 +512,16 @@ void UpdateMetrics(double dt)
 
     char buf[256];
     snprintf(buf, sizeof(buf),
-        "[METRICS] Adapter='%s'  dt=%.3f  bytesDelta=%llu  Observed=%.2f Mbps  LinkSpeed=%s\n",
-        g_physicalAdapter ? g_physicalAdapter->FriendlyName.c_str() : "unknown",
-        dt,
-        (unsigned long long)bytesDelta,
-        mbpsObserved,
-        linkSpeedStr.c_str()
+        "[LAT] push %.2f ms (size=%zu)",
+        latencyMs,
+        g_latencyHistory.size()
+    );
+    DebugLog(buf);
+
+    snprintf(buf, sizeof(buf),
+        "Protocols %.2f MB/s  Observed %.2f MB/s\n",
+            protoSum,
+            g_metrics.bps / 1024
     );
     DebugLog(buf);
 }
@@ -540,26 +558,35 @@ std::vector<Packet> GetRecentPackets(size_t maxCount)
     return out;
 }
 double ComputeAverageLatency() {
-    double sum = 0.0;
+    if (g_latencyHistory.empty())
+        return 0.0;
+
     size_t count = 0;
-    for (auto& [_, f] : g_flows) {
-        for (double l : f.stats.latencyHistory) {
-            sum += l;
+    double sum = 0.0;
+
+    for (float v : g_latencyHistory) {
+        if (std::isfinite(v)) {
+            sum += v;
             count++;
         }
     }
     return count ? (sum / count) : 0.0;
 }
+
 double ComputeAverageJitter() {
-    double total = 0.0;
+    if (g_jitterHistory.empty())
+        return 0.0;
+
     size_t count = 0;
-    for (auto& [_, f] : g_flows) {
-        for (double j : f.stats.jitterHistory) {
-            total += j;
+    double sum = 0.0;
+
+    for (float v : g_jitterHistory) {
+        if (std::isfinite(v)) {
+            sum += v;
             count++;
         }
     }
-    return count ? (total / count) : 0.0;
+    return count ? (sum / count) : 0.0;
 }
 
 double ComputePacketLoss() {
@@ -575,22 +602,14 @@ double ComputePacketLoss() {
 
 std::vector<float> GetLatencyHistory()
 {
-    std::vector<float> history;
-    for (auto& [h, flow] : g_flows) {
-        for (double val : flow.stats.latencyHistory)
-            history.push_back(static_cast<float>(val));
-    }
-    return history;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_latencyHistory.begin(), g_latencyHistory.end() };
 }
 
 std::vector<float> GetJitterHistory()
 {
-    std::vector<float> history;
-    for (auto& [h, flow] : g_flows) {
-        for (double val : flow.stats.jitterHistory)
-            history.push_back(static_cast<float>(val));
-    }
-    return history;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_jitterHistory.begin(), g_jitterHistory.end() };
 }
 
 std::vector<float> GetPacketLossHistory()
@@ -616,10 +635,10 @@ std::vector<float> GetDownBpsHistory()
 }
 
 
-std::vector<float> GetProtocolBandwidthHistory()
+std::vector<Protocols> GetProtocolBandwidthHistory()
 {
-    static std::vector<float> dummy(300, 0.0f);
-    return dummy;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_protocolHistory.begin(), g_protocolHistory.end() };
 }
 
 // ---------------- Flow queries ----------------
