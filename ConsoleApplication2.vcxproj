@@ -143,6 +143,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Analysis.cpp" />
+    <ClCompile Include="AppBandwidth.cpp" />
     <ClCompile Include="Capture.cpp" />
     <ClCompile Include="GUI.cpp" />
     <ClCompile Include="imgui.cpp" />
@@ -159,6 +160,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Analysis.h" />
+    <ClInclude Include="AppBandwidth.h" />
     <ClInclude Include="Capture.h" />
     <ClInclude Include="GUI.h" />
     <ClInclude Include="imgui.h" />

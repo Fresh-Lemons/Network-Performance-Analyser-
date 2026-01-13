@@ -69,6 +69,9 @@
     <ClCompile Include="implot-master\implot_items.cpp">
       <Filter>Source Files\ImGui</Filter>
     </ClCompile>
+    <ClCompile Include="AppBandwidth.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Analysis.h">
@@ -97,6 +100,9 @@
     </ClInclude>
     <ClInclude Include="implot-master\implot_internal.h">
       <Filter>Source Files\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="AppBandwidth.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

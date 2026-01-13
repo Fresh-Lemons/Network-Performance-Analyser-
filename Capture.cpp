@@ -42,7 +42,6 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     pkt.rawData.assign(data, data + header->len);
     const u_char* l3 = data + 14;
 
-    // minimal parsing (Ethernet + IPv4 + TCP/UDP)
     if (header->caplen < 14 + 20) return;
     uint16_t ethType = (data[12] << 8) | data[13];
     if (ethType == 0x86DD) { // IPv6

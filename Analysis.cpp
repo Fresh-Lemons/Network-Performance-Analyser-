@@ -1,4 +1,5 @@
 #include "Analysis.h"
+#include "AppBandwidth.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <mutex>
@@ -509,6 +510,8 @@ void UpdateMetrics(double dt)
     if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
         linkSpeedStr = std::to_string(g_physicalAdapter->LinkSpeed / 1e6) + " Mbps";
     }
+
+    UpdateAppBandwidth(dt);
 
     char buf[256];
     snprintf(buf, sizeof(buf),

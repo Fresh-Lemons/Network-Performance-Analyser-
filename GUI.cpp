@@ -5,6 +5,7 @@
 #include "Capture.h"
 #include "Analysis.h"
 #include "Ping.h"
+#include "AppBandwidth.h"
 #include "imgui.h"
 #include "implot.h"
 #include <vector>
@@ -567,6 +568,29 @@ void RenderGui(float dt)
             ImGui::Text("%.2f", (f.stats.bytesUp + f.stats.bytesDown) / 1048576.0);
         }
         ImGui::EndTable();
+
+        ImGui::Text("Top Applications");
+
+        auto apps = GetTopApplications(6);
+
+        ImGui::BeginTable("AppsTable", 2,
+            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+
+        ImGui::TableSetupColumn("Application");
+        ImGui::TableSetupColumn("MB/s");
+        ImGui::TableHeadersRow();
+
+        for (auto& a : apps)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(a.first.c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.2f", a.second / (1024.0 * 1024.0));
+        }
+
+        ImGui::EndTable();
+
     }
 
     ImGui::Columns(1);

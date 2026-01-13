@@ -132,6 +132,18 @@ struct Protocols {
     float otherBytes;
 };
 
+struct AppBandwidth {
+    uint64_t bytesSent = 0;
+    uint64_t bytesRecv = 0;
+};
+
+struct TcpSnapshot {
+    uint32_t pid;
+    uint32_t localPort;
+    uint32_t remotePort;
+    uint64_t sent;
+    uint64_t recv;
+};
 
 // ---------------- Analysis API ----------------
 void ProcessPacket(const Packet& pkt);
