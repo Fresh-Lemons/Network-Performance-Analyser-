@@ -110,6 +110,14 @@ struct FlowStats
     uint64_t echoRequests = 0;
     uint64_t echoReplies = 0;
 
+    uint32_t nextSeqUp = 0;
+    uint32_t nextSeqDown = 0;
+    bool seqUpInitialized = false;
+    bool seqDownInitialized = false;
+
+    uint64_t tcpGoodputUp = 0;
+    uint64_t tcpGoodputDown = 0;
+
     std::unordered_map<uint32_t, double> tcpTsSent;
 
     struct TcpOutstanding {

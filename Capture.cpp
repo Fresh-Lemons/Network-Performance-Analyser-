@@ -146,10 +146,6 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.icmpSeq = ntohs(icmp->sequence);
         pkt.isOutbound = (pkt.icmpType == 8);
     }
-    else {
-        cur.otherBytes += header->len;
-        return;
-    }
 
     // send packet to Analysis
     ProcessPacket(pkt);

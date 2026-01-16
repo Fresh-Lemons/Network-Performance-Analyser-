@@ -346,6 +346,31 @@ static void UpdateFlows(const Packet& pkt)
                 }
             }
         }
+
+        if (pkt.isOutbound && pkt.tcpPayloadLen > 0) {
+
+            if (!stats.seqUpInitialized) {
+                stats.nextSeqUp = pkt.tcpSeq + pkt.tcpPayloadLen;
+                stats.tcpGoodputUp += pkt.tcpPayloadLen;
+                stats.seqUpInitialized = true;
+            }
+            else if (pkt.tcpSeq == stats.nextSeqUp) {
+                stats.tcpGoodputUp += pkt.tcpPayloadLen;
+                stats.nextSeqUp += pkt.tcpPayloadLen;
+            }
+        }
+        if (!pkt.isOutbound && pkt.tcpPayloadLen > 0) {
+
+            if (!stats.seqDownInitialized) {
+                stats.nextSeqDown = pkt.tcpSeq + pkt.tcpPayloadLen;
+                stats.tcpGoodputDown += pkt.tcpPayloadLen;
+                stats.seqDownInitialized = true;
+            }
+            else if (pkt.tcpSeq == stats.nextSeqDown) {
+                stats.tcpGoodputDown += pkt.tcpPayloadLen;
+                stats.nextSeqDown += pkt.tcpPayloadLen;
+            }
+        }
     }
 
     // --- ICMP RTT & packet loss ---

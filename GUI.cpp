@@ -25,6 +25,23 @@ static int filterPort = 0;
 static char filterProto[8] = "";
 static int selectedPacket = -1;
 
+char Buf[32];
+
+static const char* FormatBytes(uint64_t bytes, char* buf, size_t bufSize)
+{
+    const char* units[] = { "B", "KB", "MB", "GB", "TB" };
+    double value = (double)bytes;
+    int unit = 0;
+
+    while (value >= 1024 && unit < 4) {
+        value /= 1024.0;
+        ++unit;
+    }
+
+    snprintf(buf, bufSize, "%.2f %s", value, units[unit]);
+    return buf;
+}
+
 Ping g_ping;
 
 static void CopyAndScale(
@@ -172,7 +189,7 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
     ImPlot::PushStyleVar(ImPlotStyleVar_LabelPadding, ImVec2(0, 0));
 
     if (ImPlot::BeginPlot(
-        "Protocol",
+        " ",
         ImVec2(-1, ImGui::GetContentRegionAvail().y / 2),
         ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
@@ -265,6 +282,7 @@ void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
     const int window = 150;
     const int start = n > window ? n - window : 0;
     const int count = n - start;
+    static std::vector<float> total;
 
     if (ImPlot::BeginPlot(
         "Latency (ms)",
@@ -276,6 +294,7 @@ void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
             ImPlotAxisFlags_AutoFit);
 
         ImPlot::SetupAxisLimits(ImAxis_X1, 0, count, ImGuiCond_Always);
+        ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxLatency * 1.1f, ImGuiCond_Always);
 
         ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(0.9f, 0.7f, 0.2f, 1.0f));
         ImPlot::PlotLine("Latency", latencyMs.data() + start, count);
@@ -440,11 +459,11 @@ void RenderGui(float dt)
 
     ImGui::Text("Packets\n%llu", m.totalPackets);
     ImGui::NextColumn();
-    ImGui::Text("Bandwidth\n%.1f MB/s", m.bps / 1048576.0);
+    ImGui::Text("Bandwidth\n%s", FormatBytes(m.bps, Buf, sizeof(Buf)));
     ImGui::NextColumn();
     ImGui::Text("PPS\n%.1f", m.pps);
     ImGui::NextColumn();
-    ImGui::Text("Total Data\n%.2f MB", m.totalMB);
+    ImGui::Text("Total Data\n%s", FormatBytes(m.totalBytes, Buf, sizeof(Buf)));
 	ImGui::NextColumn();
     ImGui::Text("Average Latency\n%.1f ms", ComputeAverageLatency());
     ImGui::NextColumn();
@@ -453,9 +472,9 @@ void RenderGui(float dt)
     ImGui::Text("Packet Loss\n%.1f %%", m.packetLoss);
     ImGui::NextColumn();
 
-    ImGui::Text("Observed\n%.1f MB/s", m.bps / 1048576.0);
+    ImGui::Text("Observed\n%s", FormatBytes(m.bps, Buf, sizeof(Buf)));
     ImGui::NextColumn();
-    ImGui::Text("NIC Throughput\n%.1f MB/s", m.nicBps / 1048576.0);
+    ImGui::Text("NIC Throughput\n%s", FormatBytes(m.nicBps, Buf, sizeof(Buf)));
     ImGui::NextColumn();
     ImGui::Text("Capture Visibility\n%.1f %%", m.captureVisibility * 100.0);
     ImGui::NextColumn();
@@ -546,8 +565,6 @@ void RenderGui(float dt)
         }
         ImGui::EndTable();
 
-        ImGui::Separator();
-
         // Top Flows Table
         ImGui::Text("Top Flows");
         auto flows = GetTopFlows(6);
@@ -573,24 +590,35 @@ void RenderGui(float dt)
 
         auto apps = GetTopApplications(6);
 
-        ImGui::BeginTable("AppsTable", 2,
+        ImGui::BeginTable("AppsTable", 3,
             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
 
         ImGui::TableSetupColumn("Application");
         ImGui::TableSetupColumn("MB/s");
         ImGui::TableHeadersRow();
 
-        for (auto& a : apps)
+        for (const auto& a : apps)
         {
             ImGui::TableNextRow();
+
+            // App name
             ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted(a.first.c_str());
+            ImGui::TextUnformatted(a.name.c_str());
+
+            // Total used
             ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%.2f", a.second / (1024.0 * 1024.0));
+            ImGui::TextUnformatted(FormatBytes(a.totalBytes, Buf, sizeof(Buf)));
+
+            // Current rate
+            ImGui::TableSetColumnIndex(2);
+            if (a.rateMB > 0.001)
+                ImGui::Text("%.2f MB/s", FormatBytes(a.rateMB, Buf, sizeof(Buf)));
+            else
+                ImGui::TextUnformatted("—");
         }
 
         ImGui::EndTable();
-
+            
     }
 
     ImGui::Columns(1);
@@ -598,7 +626,7 @@ void RenderGui(float dt)
     
 
 	// Debug Console (disabled by default)
-    
+    /*
     ImGui::Separator();
     ImGui::Text("Debug Log");
 
@@ -617,7 +645,7 @@ void RenderGui(float dt)
         ImGui::SetScrollHereY(1.0f);
 
     ImGui::EndChild();
-
+    */
     ImGui::Separator();
 
     // =====================================================

@@ -1,5 +1,6 @@
 // app_bandwidth.cpp
 #define WIN32_LEAN_AND_MEAN
+#include "AppBandwidth.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -16,22 +17,45 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "psapi.lib")
 
-struct AppTraffic {
-    uint64_t totalBytes = 0;
-    uint64_t lastIn = 0;
-    uint64_t lastOut = 0;
-};
-
-static std::unordered_map<DWORD, AppTraffic> g_appTotals;
+static std::unordered_map<DWORD, AppDisplay> g_appTotals;
 static std::unordered_map<DWORD, std::string> g_pidToName;
 static std::mutex g_appMutex;
+static constexpr uint64_t MAX_CONN_DELTA = 100ULL * 1024 * 1024; // 100 MB/frame
 
 struct AppCounter {
     uint64_t lastIn = 0;
     uint64_t lastOut = 0;
-    double   rateMB = 0.0;
+    double rateMB = 0.0;
 };
 
+struct TcpConnKey {
+    DWORD pid;
+    uint32_t localAddr;
+    uint32_t remoteAddr;
+    uint16_t localPort;
+    uint16_t remotePort;
+
+    bool operator==(const TcpConnKey& o) const {
+        return pid == o.pid &&
+            localAddr == o.localAddr &&
+            remoteAddr == o.remoteAddr &&
+            localPort == o.localPort &&
+            remotePort == o.remotePort;
+    }
+};
+
+struct TcpConnHash {
+    size_t operator()(const TcpConnKey& k) const {
+        size_t h = std::hash<DWORD>()(k.pid);
+        h ^= std::hash<uint32_t>()(k.localAddr) << 1;
+        h ^= std::hash<uint32_t>()(k.remoteAddr) << 2;
+        h ^= std::hash<uint16_t>()(k.localPort) << 3;
+        h ^= std::hash<uint16_t>()(k.remotePort) << 4;
+        return h;
+    }
+};
+
+static std::unordered_map<TcpConnKey, uint64_t, TcpConnHash> g_connLastBytes;
 static std::unordered_map<DWORD, AppCounter> g_apps;
 static std::mutex g_mutex;
 
@@ -84,62 +108,6 @@ static bool ReadTcpBytes(
     return true;
 }
 
-void UpdateApplicationTraffic()
-{
-    std::lock_guard<std::mutex> lock(g_appMutex);
-
-    PMIB_TCPTABLE_OWNER_PID table = nullptr;
-    ULONG size = 0;
-
-    GetExtendedTcpTable(nullptr, &size, FALSE, AF_INET,
-        TCP_TABLE_OWNER_PID_ALL, 0);
-
-    table = (PMIB_TCPTABLE_OWNER_PID)malloc(size);
-    if (!table) return;
-
-    if (GetExtendedTcpTable(table, &size, FALSE, AF_INET,
-        TCP_TABLE_OWNER_PID_ALL, 0) != NO_ERROR)
-    {
-        free(table);
-        return;
-    }
-
-    for (DWORD i = 0; i < table->dwNumEntries; ++i)
-    {
-        auto& row = table->table[i];
-        DWORD pid = row.dwOwningPid;
-
-        // Enable ESTATS once
-        static std::unordered_set<uint64_t> enabled;
-        uint64_t key = ((uint64_t)pid << 32) | row.dwLocalPort;
-        if (!enabled.count(key)) {
-            EnableTcpEstats(row);
-            enabled.insert(key);
-        }
-
-        uint64_t inBytes = 0, outBytes = 0;
-        if (!ReadTcpBytes(row, inBytes, outBytes))
-            continue;
-
-        auto& app = g_appTotals[pid];
-
-        uint64_t deltaIn = inBytes - app.lastIn;
-        uint64_t deltaOut = outBytes - app.lastOut;
-
-        app.lastIn = inBytes;
-        app.lastOut = outBytes;
-
-        app.totalBytes += (deltaIn + deltaOut);
-
-        // Cache process name once
-        if (!g_pidToName.count(pid))
-            g_pidToName[pid] = GetProcessName(pid);
-    }
-
-    free(table);
-}
-
-
 void UpdateAppBandwidth(double dtSeconds)
 {
     if (dtSeconds <= 0.0)
@@ -152,16 +120,27 @@ void UpdateAppBandwidth(double dtSeconds)
         AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
 
     std::vector<uint8_t> buffer(size);
-    auto* table = reinterpret_cast<PMIB_TCPTABLE_OWNER_PID>(buffer.data());
+    auto* table = (PMIB_TCPTABLE_OWNER_PID)buffer.data();
 
     if (GetExtendedTcpTable(table, &size, FALSE,
         AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) != NO_ERROR)
         return;
 
-    std::unordered_map<DWORD, uint64_t> curTotals;
+    std::unordered_set<TcpConnKey, TcpConnHash> active;
+    std::unordered_map<DWORD, uint64_t> frameBytes;
 
     for (DWORD i = 0; i < table->dwNumEntries; ++i) {
         const auto& row = table->table[i];
+
+        TcpConnKey key{
+            row.dwOwningPid,
+            ntohl(row.dwLocalAddr),
+            ntohl(row.dwRemoteAddr),
+            ntohs((uint16_t)row.dwLocalPort),
+            ntohs((uint16_t)row.dwRemotePort)
+        };
+
+        active.insert(key);
 
         EnableTcpEstats(row);
 
@@ -169,38 +148,78 @@ void UpdateAppBandwidth(double dtSeconds)
         if (!ReadTcpBytes(row, in, out))
             continue;
 
-        curTotals[row.dwOwningPid] += in + out;
-    }
+        uint64_t total = in + out;
+        uint64_t& last = g_connLastBytes[key];
 
-    for (auto& [pid, total] : curTotals) {
-        auto& app = g_apps[pid];
-        uint64_t last = app.lastIn + app.lastOut;
-
-        if (last > 0 && total >= last) {
-            uint64_t delta = total - last;
-            app.rateMB = (delta / dtSeconds) / (1024.0 * 1024.0);
+        if (last == 0) {
+            last = total;
+            continue;
         }
 
-        app.lastIn = total;
-        app.lastOut = 0;
+        if (total >= last) {
+            uint64_t delta = total - last;
+
+            if (delta <= MAX_CONN_DELTA) {
+                g_appTotals[row.dwOwningPid].totalBytes += delta;
+                frameBytes[row.dwOwningPid] += delta;
+            }
+            else {
+                last = total;
+                continue;
+            }
+        }
+
+        last = total;
+
+        if (total >= last) {
+            uint64_t delta = total - last;
+
+            g_appTotals[row.dwOwningPid].totalBytes += delta;
+            frameBytes[row.dwOwningPid] += delta;
+        }
+
+        last = total;
+    }
+
+    // Cleanup closed connections
+    for (auto it = g_connLastBytes.begin(); it != g_connLastBytes.end(); ) {
+        if (!active.contains(it->first))
+            it = g_connLastBytes.erase(it);
+        else
+            ++it;
+    }
+
+    // Compute rates
+    for (auto& [pid, bytes] : frameBytes) {
+        g_apps[pid].rateMB = (bytes / dtSeconds) / (1024.0 * 1024.0);
     }
 }
 
-std::vector<std::pair<std::string, double>>
-GetTopApplications(size_t maxApps)
+
+std::vector<AppDisplay> GetTopApplications(size_t maxApps)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    std::vector<std::pair<std::string, double>> out;
+    std::vector<AppDisplay> out;
 
-    for (auto& [pid, app] : g_apps) {
-        if (app.rateMB > 0.001) {
-            out.emplace_back(GetProcessName(pid), app.rateMB);
-        }
+    for (auto& [pid, totals] : g_appTotals) {
+        if (totals.totalBytes == 0)
+            continue;
+
+        AppDisplay d{};
+        d.name = GetProcessName(pid);
+        d.totalBytes = totals.totalBytes;
+
+        auto it = g_apps.find(pid);
+        d.rateMB = (it != g_apps.end()) ? it->second.rateMB : 0.0;
+
+        out.push_back(std::move(d));
     }
 
     std::sort(out.begin(), out.end(),
-        [](auto& a, auto& b) { return a.second > b.second; });
+        [](const AppDisplay& a, const AppDisplay& b) {
+            return a.totalBytes > b.totalBytes;
+        });
 
     if (out.size() > maxApps)
         out.resize(maxApps);
