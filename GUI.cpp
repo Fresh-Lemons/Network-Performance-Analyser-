@@ -81,7 +81,7 @@ void PlotBandwidthStacked(
     ImPlot::PushStyleVar(ImPlotStyleVar_LabelPadding, ImVec2(0, 0));
 
     if (ImPlot::BeginPlot(
-        "",
+        "##Bandwidth",
         ImVec2(-1, ImGui::GetContentRegionAvail().y / 2),
         ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
@@ -189,7 +189,7 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
     ImPlot::PushStyleVar(ImPlotStyleVar_LabelPadding, ImVec2(0, 0));
 
     if (ImPlot::BeginPlot(
-        " ",
+        "##ProtocolStacked",
         ImVec2(-1, ImGui::GetContentRegionAvail().y / 2),
         ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
@@ -283,9 +283,12 @@ void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
     const int start = n > window ? n - window : 0;
     const int count = n - start;
     static std::vector<float> total;
+    float maxLatency = 1.0f;
+    for (int i = start; i < n; ++i)
+        maxLatency = std::max(maxLatency, latencyMs[i]);
 
     if (ImPlot::BeginPlot(
-        "Latency (ms)",
+        "##Latency (ms)",
         ImVec2(-1, graphHeight),
         ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
@@ -299,6 +302,16 @@ void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
         ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(0.9f, 0.7f, 0.2f, 1.0f));
         ImPlot::PlotLine("Latency", latencyMs.data() + start, count);
         ImPlot::PopStyleColor();
+
+        ImDrawList* draw = ImPlot::GetPlotDrawList();
+        ImPlotRect limits = ImPlot::GetPlotLimits();
+        ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
+        ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
+        draw->AddText(
+            ImVec2(tl.x + 6, tl.y + 6),
+            IM_COL32(200, 200, 200, 255),
+            "Latency"
+        );
 
         if (ImPlot::IsPlotHovered())
         {
@@ -325,9 +338,12 @@ void PlotJitter(const std::vector<float>& jitterMs, float graphHeight)
     const int window = 150;
     const int start = n > window ? n - window : 0;
     const int count = n - start;
+    float maxJitter = 1.0f;
+    for (int i = start; i < n; ++i)
+        maxJitter = std::max(maxJitter, jitterMs[i]);
 
     if (ImPlot::BeginPlot(
-        "Jitter (ms)",
+        "##Jitter (ms)",
         ImVec2(-1, graphHeight),
         ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
@@ -336,10 +352,21 @@ void PlotJitter(const std::vector<float>& jitterMs, float graphHeight)
             ImPlotAxisFlags_AutoFit);
 
         ImPlot::SetupAxisLimits(ImAxis_X1, 0, count, ImGuiCond_Always);
+		ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxJitter * 1.1f, ImGuiCond_Always);
 
         ImPlot::PushStyleColor(ImPlotCol_Line, ImVec4(0.9f, 0.7f, 0.2f, 1.0f));
         ImPlot::PlotLine("Jitter", jitterMs.data() + start, count);
         ImPlot::PopStyleColor();
+
+        ImDrawList* draw = ImPlot::GetPlotDrawList();
+        ImPlotRect limits = ImPlot::GetPlotLimits();
+        ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
+        ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
+        draw->AddText(
+            ImVec2(tl.x + 6, tl.y + 6),
+            IM_COL32(200, 200, 200, 255),
+            "Jitter"
+        );
 
         if (ImPlot::IsPlotHovered())
         {

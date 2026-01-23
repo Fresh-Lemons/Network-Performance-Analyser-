@@ -101,8 +101,8 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         while (optLen >= 2) {
             uint8_t kind = opt[0];
 
-            if (kind == 0) break;        // End of options
-            if (kind == 1) {             // NOP
+            if (kind == 0) break;
+            if (kind == 1) {
                 opt++;
                 optLen--;
                 continue;
@@ -111,7 +111,7 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
             uint8_t len = opt[1];
             if (len < 2 || len > optLen) break;
 
-            if (kind == 8 && len == 10) { // Timestamp option
+            if (kind == 8 && len == 10) { // Timestamp
                 pkt.tcpTsVal = ntohl(*(uint32_t*)(opt + 2));
                 pkt.tcpTsEcr = ntohl(*(uint32_t*)(opt + 6));
                 break;
@@ -129,6 +129,8 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         uint16_t payloadLen = udpLen >= 8 ? udpLen - 8 : 0;
         cur.udpBytes += payloadLen;
         pkt.protocol = "UDP";
+        pkt.protocolId = IPPROTO_UDP;
+        pkt.isOutbound = IsLocalIP(srcIP);
     }
     else if (ipProto == IPPROTO_ICMP && header->caplen >= 14 + ihl + sizeof(IcmpHeader)) {
         pkt.protocol = "ICMP";

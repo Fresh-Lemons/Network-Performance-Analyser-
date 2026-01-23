@@ -115,9 +115,6 @@ struct FlowStats
     bool seqUpInitialized = false;
     bool seqDownInitialized = false;
 
-    uint64_t tcpGoodputUp = 0;
-    uint64_t tcpGoodputDown = 0;
-
     std::unordered_map<uint32_t, double> tcpTsSent;
 
     struct TcpOutstanding {

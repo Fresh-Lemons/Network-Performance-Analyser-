@@ -16,6 +16,16 @@
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "iphlpapi.lib")
 
+/* ---------------- TO DO ----------------
+Fix packet bandwidth jumps
+Implement better jitter calculation
+Find better way to get app bandwidth
+Implement hex view or more detailed view for packets
+Use ring buffer for packet storage
+Optimize packet storage and flow storage
+Implement better flow timeout and cleanup
+*/
+
 struct AdapterInfo {
     std::string FriendlyName;
     std::string Description;
@@ -351,11 +361,9 @@ static void UpdateFlows(const Packet& pkt)
 
             if (!stats.seqUpInitialized) {
                 stats.nextSeqUp = pkt.tcpSeq + pkt.tcpPayloadLen;
-                stats.tcpGoodputUp += pkt.tcpPayloadLen;
                 stats.seqUpInitialized = true;
             }
             else if (pkt.tcpSeq == stats.nextSeqUp) {
-                stats.tcpGoodputUp += pkt.tcpPayloadLen;
                 stats.nextSeqUp += pkt.tcpPayloadLen;
             }
         }
@@ -363,11 +371,9 @@ static void UpdateFlows(const Packet& pkt)
 
             if (!stats.seqDownInitialized) {
                 stats.nextSeqDown = pkt.tcpSeq + pkt.tcpPayloadLen;
-                stats.tcpGoodputDown += pkt.tcpPayloadLen;
                 stats.seqDownInitialized = true;
             }
             else if (pkt.tcpSeq == stats.nextSeqDown) {
-                stats.tcpGoodputDown += pkt.tcpPayloadLen;
                 stats.nextSeqDown += pkt.tcpPayloadLen;
             }
         }
@@ -399,7 +405,7 @@ static void UpdateFlows(const Packet& pkt)
             }
         }
 
-        // optional: update packet loss per flow
+        //packet loss
         double loss = 0.0;
         if (flow.stats.echoRequests > 0) {
             loss = 100.0 * (flow.stats.echoRequests - flow.stats.echoReplies) / flow.stats.echoRequests;
@@ -522,9 +528,9 @@ void UpdateMetrics(double dt)
     uint64_t bytesDelta = totalBytes - lastTotalBytes;
     lastTotalBytes = totalBytes;
 
-    double bbps = bytesDelta / dt;          // bytes/sec
-    double mbps = bbps * 8.0 / 1e6;        // megabits/sec
-    double bpsObserved = bytesDelta / dt;         // bytes/sec
+    double bbps = bytesDelta / dt;
+    double mbps = bbps * 8.0 / 1e6;
+    double bpsObserved = bytesDelta / dt;
     double mbpsObserved = (bytesDelta * 8.0) / (dt * 1e6);
     double mbpsLink = 0.0;
     if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
@@ -627,7 +633,6 @@ double ComputePacketLoss() {
     return 100.0 * (double)(sent - recv) / sent;
 }
 
-
 std::vector<float> GetLatencyHistory()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -669,7 +674,6 @@ std::vector<Protocols> GetProtocolBandwidthHistory()
     return { g_protocolHistory.begin(), g_protocolHistory.end() };
 }
 
-// ---------------- Flow queries ----------------
 std::vector<Flow> GetTopFlows(size_t maxFlows)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
