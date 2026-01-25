@@ -17,12 +17,12 @@
 #pragma comment(lib, "iphlpapi.lib")
 
 /* ---------------- TO DO ----------------
-Fix packet bandwidth jumps
-Implement better jitter calculation
+Implement better jitter + latency calculation
+Implement full IPv6 support
+Add filtering options
 Find better way to get app bandwidth
 Implement hex view or more detailed view for packets
-Use ring buffer for packet storage
-Optimize packet storage and flow storage
+Optimize packet and flow storage
 Implement better flow timeout and cleanup
 */
 
@@ -178,7 +178,7 @@ std::vector<AdapterInfo> GetAdapters()
                 }
             }
         }
-        char dbg[256];
+        /*char dbg[256];
         snprintf(dbg, sizeof(dbg),
             "[ADAPTER] IfIndex=%lu Name=%s LinkSpeed=%llu\n",
             pCurr->IfIndex,
@@ -186,7 +186,7 @@ std::vector<AdapterInfo> GetAdapters()
             (unsigned long long)pCurr->TransmitLinkSpeed);
         DebugLog(dbg);
         DebugLog("[PCAP] Active IfIndex=" + std::to_string(g_activeIfIndex));
-
+        */
         adapters.push_back(std::move(adapter));
 
     }
@@ -315,7 +315,7 @@ static void UpdateFlows(const Packet& pkt)
 
         bool usedTimestamp = false;
 
-        // TCP TIMESTAMP-BASED RTT
+		// TCP Timestamp RTT
         if (pkt.tcpTsVal != 0 || pkt.tcpTsEcr != 0) {
 
             if (pkt.isOutbound && pkt.tcpTsVal != 0) {
@@ -336,14 +336,11 @@ static void UpdateFlows(const Packet& pkt)
 
         // SEQ/ACK RTT (fallback only)
         if (!usedTimestamp) {
-
-            // outbound data
             if (pkt.isOutbound && pkt.tcpPayloadLen > 0) {
                 uint32_t endSeq = pkt.tcpSeq + pkt.tcpPayloadLen;
                 stats.tcpOutstanding[endSeq] = { now, endSeq };
             }
 
-            // inbound ACK
             if (!pkt.isOutbound && pkt.tcpAck != 0) {
                 auto it = stats.tcpOutstanding.upper_bound(pkt.tcpAck);
                 if (it != stats.tcpOutstanding.begin()) {
@@ -405,7 +402,6 @@ static void UpdateFlows(const Packet& pkt)
             }
         }
 
-        //packet loss
         double loss = 0.0;
         if (flow.stats.echoRequests > 0) {
             loss = 100.0 * (flow.stats.echoRequests - flow.stats.echoReplies) / flow.stats.echoRequests;
@@ -415,7 +411,6 @@ static void UpdateFlows(const Packet& pkt)
         flow.stats.packetLossHistory.push_back(loss);
     }
 }
-
 
 
 // ---------------- Packet processing ----------------

@@ -13,8 +13,8 @@ struct Packet
     std::string dstIP;
     uint16_t srcPort = 0;
     uint16_t dstPort = 0;
-    uint8_t  protocolId = 0;   // IPPROTO_TCP / UDP / ICMP
-    std::string protocol;      // "TCP", "UDP", "ICMP"
+    uint8_t  protocolId = 0;
+    std::string protocol;
     uint32_t length = 0;
     bool isOutbound = true;
     std::vector<uint8_t> rawData;
@@ -168,10 +168,7 @@ double ComputeAverageJitter();
 double ComputeAverageLatency();
 double ComputePacketLoss();
 bool ResolveIfIndexFromPcapDevice(const std::string& devName);
-
-// Flow queries
 std::vector<Flow> GetTopFlows(size_t maxFlows);
 std::vector<std::pair<std::string, float>> GetTopHosts(size_t maxHosts);
-// Debug log
 std::vector<std::string> GetDebugLog();
 extern Protocols g_currentProtocolBytes;

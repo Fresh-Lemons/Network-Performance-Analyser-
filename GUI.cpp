@@ -27,6 +27,7 @@ static int selectedPacket = -1;
 
 char Buf[32];
 
+// For turning bytes into kilobytes, megabytes, etc.
 static const char* FormatBytes(uint64_t bytes, char* buf, size_t bufSize)
 {
     const char* units[] = { "B", "KB", "MB", "GB", "TB" };
@@ -242,11 +243,9 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
             buf
         );
 
-        // Bottom labels
         ImPlot::PlotText("30", limits.X.Min, limits.Y.Min, ImVec2(10, -8));
         ImPlot::PlotText("0", limits.X.Max, limits.Y.Min, ImVec2(-10, -8));
 
-        // Hover cursor
         if (ImPlot::IsPlotHovered()) {
             ImPlotPoint mouse = ImPlot::GetPlotMousePos();
             double x[2] = { mouse.x, mouse.x };
@@ -678,11 +677,11 @@ void RenderGui(float dt)
     // =====================================================
     // PACKET LIST (FULL WIDTH)
     // =====================================================
-    ImGui::Text("Recent Packets");
+    ImGui::Text("Recent Packets (Last 1000)");
     ImGui::BeginChild("Packets", ImVec2(0, packetListHeight), true,
         ImGuiWindowFlags_HorizontalScrollbar);
 
-    auto packets = GetRecentPackets(100);
+    auto packets = GetRecentPackets(1000);
     for (int i = 0; i < (int)packets.size(); i++) {
         const auto& p = packets[i];
         ImGui::PushID(i);

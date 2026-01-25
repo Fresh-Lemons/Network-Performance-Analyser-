@@ -13,7 +13,7 @@
 #include <cmath>
 
 #include "Ping.h"
-#include "Analysis.h"   // for Packet + Now()
+#include "Analysis.h"
 
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "Iphlpapi.lib")
@@ -25,9 +25,7 @@ double Now()
         steady_clock::now().time_since_epoch()
     ).count();
 }
-// ------------------------------------------------------------------
-// One-time Winsock init (safe to call multiple times)
-// ------------------------------------------------------------------
+
 static void EnsureWinsock()
 {
     static bool initialized = false;
@@ -38,7 +36,6 @@ static void EnsureWinsock()
     }
 }
 
-// ------------------------------------------------------------------
 
 bool Ping::Start(const char* ip, int count)
 {
@@ -101,7 +98,6 @@ bool Ping::Start(const char* ip, int count)
     return true;
 }
 
-// ------------------------------------------------------------------
 
 double Ping::GetAverageLatency() const
 {

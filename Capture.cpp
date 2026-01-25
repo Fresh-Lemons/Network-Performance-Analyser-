@@ -14,7 +14,6 @@ static std::mutex g_mutex;
 static std::atomic<bool> g_running{ false };
 static char errbuf[PCAP_ERRBUF_SIZE];
 
-// ---------------- Device Enumeration ----------------
 std::vector<DeviceInfo> GetAvailableDevices()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -31,7 +30,6 @@ std::vector<DeviceInfo> GetAvailableDevices()
     return g_devices;
 }
 
-// ---------------- Packet Handler ----------------
 static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, const u_char* data)
 {
     if (!header || !data) return;
@@ -85,7 +83,7 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.tcpAck = ntohl(*(uint32_t*)(l4 + 8));
         uint8_t dataOffset = (l4[12] >> 4) * 4;
         uint16_t ipTotalLen = ntohs(*(uint16_t*)(ip + 2));
-        uint32_t payloadLen = ipTotalLen - ihl - dataOffset;
+        int32_t payloadLen = (int32_t)ipTotalLen - (int32_t)ihl - (int32_t)dataOffset;
         pkt.tcpPayloadLen = payloadLen;
         cur.tcpBytes += payloadLen;
         pkt.protocol = "TCP";
@@ -149,7 +147,6 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.isOutbound = (pkt.icmpType == 8);
     }
 
-    // send packet to Analysis
     ProcessPacket(pkt);
 }
 
@@ -158,7 +155,6 @@ static bool IsLocalIP(uint32_t ip)
     uint8_t b1 = ip & 0xFF;
     uint8_t b2 = (ip >> 8) & 0xFF;
 
-    // RFC1918 private ranges
     if (b1 == 10) return true;
     if (b1 == 192 && b2 == 168) return true;
     if (b1 == 172 && (b2 >= 16 && b2 <= 31)) return true;
@@ -166,7 +162,6 @@ static bool IsLocalIP(uint32_t ip)
     return false;
 }
 
-// ---------------- Capture Thread ----------------
 static void CaptureLoop()
 {
     while (g_running) {
@@ -181,7 +176,6 @@ static void CaptureLoop()
     }
 }
 
-// ---------------- Start Capture ----------------
 bool StartCapture(int deviceIndex, const std::string& filter)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -194,7 +188,6 @@ bool StartCapture(int deviceIndex, const std::string& filter)
 
     const std::string& devName = g_devices[deviceIndex].name;
 
-    // Resolve adapter BEFORE starting capture
     if (!ResolveIfIndexFromPcapDevice(devName))
         return false;
 
@@ -202,7 +195,6 @@ bool StartCapture(int deviceIndex, const std::string& filter)
     if (!g_handle)
         return false;
 
-    // Apply BPF filter
     if (!filter.empty()) {
         bpf_program fp{};
         if (pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN) == 0) {
@@ -217,7 +209,6 @@ bool StartCapture(int deviceIndex, const std::string& filter)
     return true;
 }
 
-// ---------------- Stop Capture ----------------
 void StopCapture()
 {
     pcap_t* handleToClose = nullptr;
@@ -244,14 +235,12 @@ void StopCapture()
         pcap_close(handleToClose);
 }
 
-// ---------------- Is Capturing ----------------
 bool IsCapturing()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_running;
 }
 
-// ---------------- Save PCAP ----------------
 bool SavePcap(const std::string& filename)
 {
     std::lock_guard<std::mutex> lock(g_mutex);

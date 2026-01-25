@@ -1,4 +1,3 @@
-// app_bandwidth.cpp
 #define WIN32_LEAN_AND_MEAN
 #include "AppBandwidth.h"
 #include <winsock2.h>
@@ -20,7 +19,7 @@
 static std::unordered_map<DWORD, AppDisplay> g_appTotals;
 static std::unordered_map<DWORD, std::string> g_pidToName;
 static std::mutex g_appMutex;
-static constexpr uint64_t MAX_CONN_DELTA = 100ULL * 1024 * 1024; // 100 MB/frame
+static constexpr uint64_t MAX_CONN_DELTA = 100ULL * 1024 * 1024;
 
 struct AppCounter {
     uint64_t lastIn = 0;
@@ -181,7 +180,6 @@ void UpdateAppBandwidth(double dtSeconds)
         last = total;
     }
 
-    // Cleanup closed connections
     for (auto it = g_connLastBytes.begin(); it != g_connLastBytes.end(); ) {
         if (!active.contains(it->first))
             it = g_connLastBytes.erase(it);
@@ -189,7 +187,6 @@ void UpdateAppBandwidth(double dtSeconds)
             ++it;
     }
 
-    // Compute rates
     for (auto& [pid, bytes] : frameBytes) {
         g_apps[pid].rateMB = (bytes / dtSeconds) / (1024.0 * 1024.0);
     }
