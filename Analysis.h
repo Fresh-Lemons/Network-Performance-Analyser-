@@ -69,7 +69,7 @@ struct Metrics
     double bps = 0.0;
     double pps = 0.0;
     double totalMB = 0.0;
-    double lastLatency = 0.0;
+    double latency = 0.0;
     double jitter = 0.0;
     double packetLoss = 0.0;
     double smoothedLatency = 0.0;

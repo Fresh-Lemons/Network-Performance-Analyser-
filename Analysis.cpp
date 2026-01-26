@@ -326,7 +326,7 @@ static void UpdateFlows(const Packet& pkt)
                 auto it = stats.tcpTsSent.find(pkt.tcpTsEcr);
                 if (it != stats.tcpTsSent.end()) {
                     double rttMs = (now - it->second) * 1000.0;
-					g_metrics.lastLatency = rttMs;
+					g_metrics.latency = rttMs;
 
                     stats.tcpTsSent.erase(it);
                     usedTimestamp = true;
@@ -347,7 +347,7 @@ static void UpdateFlows(const Packet& pkt)
                     --it;
 
                     double rttMs = (now - it->second.sendTime) * 1000.0;
-                    g_metrics.lastLatency = rttMs;
+                    g_metrics.latency = rttMs;
 
                     stats.tcpOutstanding.erase(it);
                 }
@@ -449,13 +449,12 @@ void UpdateMetrics(double dt)
     double pps = (packets - lastPackets) / dt;
     double upBps = (up - lastUp) / dt;
     double downBps = (down - lastDown) / dt;
-    float latencyMs = g_metrics.lastLatency;
+    float latencyMs = g_metrics.latency;
     float jitterMs = g_metrics.jitter;
     if (!std::isfinite(latencyMs))
         latencyMs = NAN;
     if (!std::isfinite(jitterMs))
         jitterMs = NAN;
-
 
     lastBytes = bytes;
     lastPackets = packets;
@@ -491,7 +490,7 @@ void UpdateMetrics(double dt)
     g_metrics.timeElapsed += dt;
     g_metrics.bps = bps;
     g_metrics.pps = pps;
-	g_metrics.lastLatency = latencyMs;
+	g_metrics.latency = latencyMs;
     g_metrics.jitter = jitterMs;
     g_metrics.packetLoss = ComputePacketLoss();
 	g_currentProtocolBytes = { 0,0,0,0 };
@@ -538,7 +537,7 @@ void UpdateMetrics(double dt)
     }
 
     UpdateAppBandwidth(dt);
-
+    /*
     char buf[256];
     snprintf(buf, sizeof(buf),
         "[LAT] push %.2f ms (size=%zu)",
@@ -553,6 +552,7 @@ void UpdateMetrics(double dt)
             g_metrics.bps / 1024
     );
     DebugLog(buf);
+    */
 }
 
 // ---------------- GUI getters ----------------

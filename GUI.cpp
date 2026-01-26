@@ -493,7 +493,7 @@ void RenderGui(float dt)
 	ImGui::NextColumn();
     ImGui::Text("Average Latency\n%.1f ms", ComputeAverageLatency());
     ImGui::NextColumn();
-    ImGui::Text("Jitter\n%.1f ms", m.jitter);
+    ImGui::Text("Average Jitter\n%.1f ms", ComputeAverageJitter());
     ImGui::NextColumn();
     ImGui::Text("Packet Loss\n%.1f %%", m.packetLoss);
     ImGui::NextColumn();
@@ -620,6 +620,7 @@ void RenderGui(float dt)
             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
 
         ImGui::TableSetupColumn("Application");
+        ImGui::TableSetupColumn("Total");
         ImGui::TableSetupColumn("MB/s");
         ImGui::TableHeadersRow();
 
