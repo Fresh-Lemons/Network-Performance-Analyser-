@@ -498,11 +498,9 @@ void RenderGui(float dt)
     ImGui::Text("Packet Loss\n%.1f %%", m.packetLoss);
     ImGui::NextColumn();
 
-    ImGui::Text("Observed\n%s", FormatBytes(m.bps, Buf, sizeof(Buf)));
+    ImGui::Text("Capture Visibility\n%.1f %%", m.captureVisibility * 100.0);
     ImGui::NextColumn();
     ImGui::Text("NIC Throughput\n%s", FormatBytes(m.nicBps, Buf, sizeof(Buf)));
-    ImGui::NextColumn();
-    ImGui::Text("Capture Visibility\n%.1f %%", m.captureVisibility * 100.0);
     ImGui::NextColumn();
     ImGui::Text("Link Speed\n%.0f MB/s", m.linkSpeedBps / 1e6);
     ImGui::NextColumn();
@@ -612,7 +610,7 @@ void RenderGui(float dt)
         }
         ImGui::EndTable();
 
-        ImGui::Text("Top Applications");
+        ImGui::Text("Top Applications (Not Accurate)");
 
         auto apps = GetTopApplications(6);
 
@@ -689,7 +687,7 @@ void RenderGui(float dt)
 
         std::string label =
             p.srcIP + ":" + std::to_string(p.srcPort) +
-            " ? " +
+            " - " +
             p.dstIP + ":" + std::to_string(p.dstPort) +
             "  " + p.protocol;
 
