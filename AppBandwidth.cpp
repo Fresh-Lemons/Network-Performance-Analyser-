@@ -1,197 +1,188 @@
+// AppBandwidth.cpp
 #define WIN32_LEAN_AND_MEAN
 #include "AppBandwidth.h"
-#include <winsock2.h>
-#include <ws2tcpip.h>
+
 #include <windows.h>
-#include <iphlpapi.h>
+#include <evntrace.h>
+#include <tdh.h>
+#include <evntcons.h>
 #include <psapi.h>
 
 #include <unordered_map>
 #include <vector>
 #include <string>
-#include <algorithm>
 #include <mutex>
-#include <unordered_set>
+#include <thread>
+#include <algorithm>
+#include <chrono>
+#include <deque>
 
-#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "tdh.lib")
+#pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "psapi.lib")
 
-static std::unordered_map<DWORD, AppDisplay> g_appTotals;
-static std::unordered_map<DWORD, std::string> g_pidToName;
-static std::mutex g_appMutex;
-static constexpr uint64_t MAX_CONN_DELTA = 100ULL * 1024 * 1024;
+static std::deque<std::string> g_debugLog;
+static constexpr size_t MAX_DEBUG_LINES = 200;
+char buf[32];
 
-struct AppCounter {
-    uint64_t lastIn = 0;
-    uint64_t lastOut = 0;
+static void DebugLog(const std::string& s)
+{
+    g_debugLog.push_back(s);
+    if (g_debugLog.size() > MAX_DEBUG_LINES)
+        g_debugLog.pop_front();
+}
+
+struct AppInternal {
+    uint64_t totalBytes = 0;
+    uint64_t bytesThisSecond = 0;
     double rateMB = 0.0;
 };
 
-struct TcpConnKey {
-    DWORD pid;
-    uint32_t localAddr;
-    uint32_t remoteAddr;
-    uint16_t localPort;
-    uint16_t remotePort;
-
-    bool operator==(const TcpConnKey& o) const {
-        return pid == o.pid &&
-            localAddr == o.localAddr &&
-            remoteAddr == o.remoteAddr &&
-            localPort == o.localPort &&
-            remotePort == o.remotePort;
-    }
-};
-
-struct TcpConnHash {
-    size_t operator()(const TcpConnKey& k) const {
-        size_t h = std::hash<DWORD>()(k.pid);
-        h ^= std::hash<uint32_t>()(k.localAddr) << 1;
-        h ^= std::hash<uint32_t>()(k.remoteAddr) << 2;
-        h ^= std::hash<uint16_t>()(k.localPort) << 3;
-        h ^= std::hash<uint16_t>()(k.remotePort) << 4;
-        return h;
-    }
-};
-
-static std::unordered_map<TcpConnKey, uint64_t, TcpConnHash> g_connLastBytes;
-static std::unordered_map<DWORD, AppCounter> g_apps;
+static std::unordered_map<DWORD, AppInternal> g_apps;
 static std::mutex g_mutex;
+
+static TRACEHANDLE g_sessionHandle = 0;
+static TRACEHANDLE g_traceHandle = 0;
+static std::thread g_traceThread;
+static bool g_running = false;
+
+static const GUID KERNEL_NETWORK_PROVIDER = { 0x7dd42a49, 0x5329, 0x4832, { 0x8d, 0xfd, 0x43, 0xd9, 0x79, 0x15, 0x3a, 0x88 } };
+static const GUID SystemTraceControlGuid =
+{ 0x9e814aad, 0x3204, 0x11d2,
+  { 0x9a, 0x82, 0x00, 0x60, 0x08, 0xa8, 0x69, 0x39 } };
+
 
 static std::string GetProcessName(DWORD pid)
 {
     char name[MAX_PATH] = "Unknown";
+
     HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
         FALSE, pid);
     if (h) {
         GetModuleBaseNameA(h, nullptr, name, MAX_PATH);
         CloseHandle(h);
     }
+
     return name;
 }
 
-static void EnableTcpEstats(const MIB_TCPROW_OWNER_PID& row)
+void WINAPI EventCallback(PEVENT_RECORD record)
 {
-    TCP_ESTATS_DATA_RW_v0 rw{};
-    rw.EnableCollection = TRUE;
+    DebugLog("Event received");
+ 
+    if (!record)
+        return;
 
-    SetPerTcpConnectionEStats(
-        (PMIB_TCPROW)&row,
-        TcpConnectionEstatsData,
-        (PUCHAR)&rw,
+    USHORT id = record->EventHeader.EventDescriptor.Id;
+    if (id != 10 && id != 11)
+        return;
+
+    DWORD pid = record->EventHeader.ProcessId;
+
+    PROPERTY_DATA_DESCRIPTOR desc{};
+    desc.PropertyName = (ULONGLONG)L"size";
+    desc.ArrayIndex = ULONG_MAX;
+
+    ULONG size = 0;
+    ULONG outSize = sizeof(size);
+
+    if (TdhGetProperty(record,
         0,
-        sizeof(rw),
-        0
-    );
-}
-
-static bool ReadTcpBytes(
-    const MIB_TCPROW_OWNER_PID& row,
-    uint64_t& inBytes,
-    uint64_t& outBytes)
-{
-    TCP_ESTATS_DATA_ROD_v0 rod{};
-    ULONG rodSize = sizeof(rod);
-
-    if (GetPerTcpConnectionEStats(
-        (PMIB_TCPROW)&row,
-        TcpConnectionEstatsData,
-        nullptr, 0, 0,
-        nullptr, 0, 0,
-        (PUCHAR)&rod, 0, rodSize
-    ) != NO_ERROR)
-        return false;
-
-    inBytes = rod.DataBytesIn;
-    outBytes = rod.DataBytesOut;
-    return true;
-}
-
-void UpdateAppBandwidth(double dtSeconds)
-{
-    if (dtSeconds <= 0.0)
+        nullptr,
+        1,
+        &desc,
+        outSize,
+        (PBYTE)&size) != ERROR_SUCCESS)
         return;
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    ULONG size = 0;
-    GetExtendedTcpTable(nullptr, &size, FALSE,
-        AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
-
-    std::vector<uint8_t> buffer(size);
-    auto* table = (PMIB_TCPTABLE_OWNER_PID)buffer.data();
-
-    if (GetExtendedTcpTable(table, &size, FALSE,
-        AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) != NO_ERROR)
-        return;
-
-    std::unordered_set<TcpConnKey, TcpConnHash> active;
-    std::unordered_map<DWORD, uint64_t> frameBytes;
-
-    for (DWORD i = 0; i < table->dwNumEntries; ++i) {
-        const auto& row = table->table[i];
-
-        TcpConnKey key{
-            row.dwOwningPid,
-            ntohl(row.dwLocalAddr),
-            ntohl(row.dwRemoteAddr),
-            ntohs((uint16_t)row.dwLocalPort),
-            ntohs((uint16_t)row.dwRemotePort)
-        };
-
-        active.insert(key);
-
-        EnableTcpEstats(row);
-
-        uint64_t in = 0, out = 0;
-        if (!ReadTcpBytes(row, in, out))
-            continue;
-
-        uint64_t total = in + out;
-        uint64_t& last = g_connLastBytes[key];
-
-        if (last == 0) {
-            last = total;
-            continue;
-        }
-
-        if (total >= last) {
-            uint64_t delta = total - last;
-
-            if (delta <= MAX_CONN_DELTA) {
-                g_appTotals[row.dwOwningPid].totalBytes += delta;
-                frameBytes[row.dwOwningPid] += delta;
-            }
-            else {
-                last = total;
-                continue;
-            }
-        }
-
-        last = total;
-
-        if (total >= last) {
-            uint64_t delta = total - last;
-
-            g_appTotals[row.dwOwningPid].totalBytes += delta;
-            frameBytes[row.dwOwningPid] += delta;
-        }
-
-        last = total;
-    }
-
-    for (auto it = g_connLastBytes.begin(); it != g_connLastBytes.end(); ) {
-        if (!active.contains(it->first))
-            it = g_connLastBytes.erase(it);
-        else
-            ++it;
-    }
-
-    for (auto& [pid, bytes] : frameBytes) {
-        g_apps[pid].rateMB = (bytes / dtSeconds) / (1024.0 * 1024.0);
-    }
+    auto& app = g_apps[pid];
+    app.totalBytes += size;
+    app.bytesThisSecond += size;
 }
 
+static void TraceThread()
+{
+    ProcessTrace(&g_traceHandle, 1, nullptr, nullptr);
+}
+
+bool StartAppBandwidth()
+{
+    DebugLog("ETW session started");
+
+    if (g_running)
+        return false;
+
+    ULONG bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + 1024;
+    auto* props = (EVENT_TRACE_PROPERTIES*)calloc(1, bufferSize);
+
+    props->Wnode.BufferSize = bufferSize;
+    props->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+    props->Wnode.Guid = SystemTraceControlGuid;
+    props->Wnode.ClientContext = 1;
+    props->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
+    props->EnableFlags = EVENT_TRACE_FLAG_NETWORK_TCPIP;
+    props->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
+    DebugLog("Here");
+    ControlTrace(0, KERNEL_LOGGER_NAME, props, EVENT_TRACE_CONTROL_STOP);
+
+    ULONG status = StartTrace(&g_sessionHandle,
+        KERNEL_LOGGER_NAME,
+        props);
+
+    if (status != ERROR_SUCCESS)
+    {
+        DebugLog("Kernel StartTrace failed");
+        free(props);
+        return false;
+    }
+    
+    EVENT_TRACE_LOGFILE log{};
+    log.LoggerName = (LPWSTR)KERNEL_LOGGER_NAME;
+    log.ProcessTraceMode =
+        PROCESS_TRACE_MODE_REAL_TIME |
+        PROCESS_TRACE_MODE_EVENT_RECORD;
+    log.EventRecordCallback = EventCallback;
+    g_traceHandle = OpenTrace(&log);
+
+    g_running = true;
+    g_traceThread = std::thread(TraceThread);
+    DebugLog("Here2");
+
+    free(props);
+    return true;
+}
+
+void StopAppBandwidth()
+{
+    if (!g_running)
+        return;
+
+    g_running = false;
+
+    CloseTrace(g_traceHandle);
+
+    ControlTrace(g_sessionHandle,
+        L"MyNetSession",
+        nullptr,
+        EVENT_TRACE_CONTROL_STOP);
+
+    if (g_traceThread.joinable())
+        g_traceThread.join();
+}
+
+void UpdateAppBandwidth(double dt)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    for (auto& [pid, app] : g_apps) {
+        app.rateMB =
+            (app.bytesThisSecond / dt) / (1024.0 * 1024.0);
+
+        app.bytesThisSecond = 0;
+    }
+}
 
 std::vector<AppDisplay> GetTopApplications(size_t maxApps)
 {
@@ -199,16 +190,14 @@ std::vector<AppDisplay> GetTopApplications(size_t maxApps)
 
     std::vector<AppDisplay> out;
 
-    for (auto& [pid, totals] : g_appTotals) {
-        if (totals.totalBytes == 0)
+    for (auto& [pid, app] : g_apps) {
+        if (app.totalBytes == 0)
             continue;
 
         AppDisplay d{};
         d.name = GetProcessName(pid);
-        d.totalBytes = totals.totalBytes;
-
-        auto it = g_apps.find(pid);
-        d.rateMB = (it != g_apps.end()) ? it->second.rateMB : 0.0;
+        d.totalBytes = app.totalBytes;
+        d.rateMB = app.rateMB;
 
         out.push_back(std::move(d));
     }
@@ -222,4 +211,9 @@ std::vector<AppDisplay> GetTopApplications(size_t maxApps)
         out.resize(maxApps);
 
     return out;
+}
+std::vector<std::string> GetDebugLog1()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_debugLog.begin(), g_debugLog.end() };
 }

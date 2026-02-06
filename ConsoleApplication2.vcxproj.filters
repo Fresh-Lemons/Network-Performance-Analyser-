@@ -102,7 +102,7 @@
       <Filter>Source Files\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="AppBandwidth.h">
-      <Filter>Header Files</Filter>
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

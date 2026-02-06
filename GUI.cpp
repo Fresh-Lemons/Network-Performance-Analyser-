@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <deque>
 #include <thread>
+#include <mutex>
 
 // For pie chart
 #ifndef PI_F
@@ -26,7 +27,21 @@ static char filterProto[8] = "";
 static int selectedPacket = -1;
 
 char Buf[32];
+static std::mutex g_mutex;
+static std::deque<std::string> g_debugLog;
+static constexpr size_t MAX_DEBUG_LINES = 200;
 
+static void DebugLog2(const std::string& s)
+{
+    g_debugLog.push_back(s);
+    if (g_debugLog.size() > MAX_DEBUG_LINES)
+        g_debugLog.pop_front();
+}
+std::vector<std::string> GetDebugLog2()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_debugLog.begin(), g_debugLog.end() };
+}
 // For turning bytes into kilobytes, megabytes, etc.
 static const char* FormatBytes(uint64_t bytes, char* buf, size_t bufSize)
 {
@@ -450,12 +465,18 @@ void RenderGui(float dt)
 
     ImGui::SameLine();
     if (!IsCapturing()) {
-        if (selectedDevice >= 0 && ImGui::Button("Start"))
+        if (selectedDevice >= 0 && ImGui::Button("Start")) {
             StartCapture(selectedDevice, "");
+            DebugLog2("Starting");
+            StartAppBandwidth();
+            DebugLog2("Started");
+        }
     }
     else {
-        if (ImGui::Button("Stop"))
+        if (ImGui::Button("Stop")) {
             StopCapture();
+            StopAppBandwidth();
+        }
     }
 
     ImGui::SameLine();
@@ -651,17 +672,21 @@ void RenderGui(float dt)
     
 
 	// Debug Console (disabled by default)
-    /*
+    
     ImGui::Separator();
     ImGui::Text("Debug Log");
 
     ImGui::BeginChild("DebugLog", ImVec2(0, 150), true);
 
-    auto log = GetDebugLog();
+    auto log = GetDebugLog1();
+    auto log1 = GetDebugLog2();
     bool scrollToBottom =
         ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
 
     for (const auto& line : log) {
+        ImGui::TextUnformatted(line.c_str());
+    }
+    for (const auto& line : log1) {
         ImGui::TextUnformatted(line.c_str());
     }
 
@@ -670,7 +695,7 @@ void RenderGui(float dt)
         ImGui::SetScrollHereY(1.0f);
 
     ImGui::EndChild();
-    */
+    
     ImGui::Separator();
 
     // =====================================================
