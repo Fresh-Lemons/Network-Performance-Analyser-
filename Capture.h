@@ -15,4 +15,5 @@ bool StartCapture(int deviceIndex, const std::string& filter);
 bool IsLocalIP(uint32_t ip);
 void StopCapture();
 bool IsCapturing();
+std::vector<std::string> GetDebugLog3();
 bool SavePcap(const std::string& filename);

@@ -311,23 +311,19 @@ static void UpdateFlows(const Packet& pkt)
 
     if (pkt.protocol == "TCP") {
         auto& stats = flow.stats;
-        double now = Now();
-
+        double now = pkt.timestamp;
         bool usedTimestamp = false;
-
-		// TCP Timestamp RTT
+        
+        // TCP Timestamp RTT
         if (pkt.tcpTsVal != 0 || pkt.tcpTsEcr != 0) {
-
             if (pkt.isOutbound && pkt.tcpTsVal != 0) {
-                stats.tcpTsSent[pkt.tcpTsVal] = now;
+                stats.tcpTsSent[pkt.tcpTsVal] = now;  // now from pcap
             }
-
             if (!pkt.isOutbound && pkt.tcpTsEcr != 0) {
                 auto it = stats.tcpTsSent.find(pkt.tcpTsEcr);
                 if (it != stats.tcpTsSent.end()) {
                     double rttMs = (now - it->second) * 1000.0;
-					g_metrics.latency = rttMs;
-
+                    g_metrics.latency = rttMs;
                     stats.tcpTsSent.erase(it);
                     usedTimestamp = true;
                 }

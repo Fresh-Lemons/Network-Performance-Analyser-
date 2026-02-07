@@ -6,6 +6,7 @@
 #include <atomic>
 #include <vector>
 #include <cstring>
+#include <deque>
 
 static std::vector<DeviceInfo> g_devices;
 static pcap_t* g_handle = nullptr;
@@ -13,6 +14,16 @@ static std::thread g_captureThread;
 static std::mutex g_mutex;
 static std::atomic<bool> g_running{ false };
 static char errbuf[PCAP_ERRBUF_SIZE];
+static uint32_t g_localIP = 0;
+static std::deque<std::string> g_debugLog;
+static constexpr size_t MAX_DEBUG_LINES = 200;
+
+static void DebugLog(const std::string& s)
+{
+    g_debugLog.push_back(s);
+    if (g_debugLog.size() > MAX_DEBUG_LINES)
+        g_debugLog.pop_front();
+}
 
 std::vector<DeviceInfo> GetAvailableDevices()
 {
@@ -39,6 +50,16 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     pkt.length = header->len;
     pkt.rawData.assign(data, data + header->len);
     const u_char* l3 = data + 14;
+    pkt.timestamp = (double)header->ts.tv_sec + (double)header->ts.tv_usec / 1000000.0;
+
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "tv_sec = %ld, tv_usec = %ld, calculated = %.6f",
+        (long)header->ts.tv_sec,
+        (long)header->ts.tv_usec,
+        (double)header->ts.tv_sec + (double)header->ts.tv_usec / 1000000.0
+    );
+    DebugLog(buf);
 
     if (header->caplen < 14 + 20) return;
     uint16_t ethType = (data[12] << 8) | data[13];
@@ -152,6 +173,10 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
 
 static bool IsLocalIP(uint32_t ip)
 {
+    if (g_localIP != 0) {
+        return ip == g_localIP;
+    }
+
     uint8_t b1 = ip & 0xFF;
     uint8_t b2 = (ip >> 8) & 0xFF;
 
@@ -160,6 +185,17 @@ static bool IsLocalIP(uint32_t ip)
     if (b1 == 172 && (b2 >= 16 && b2 <= 31)) return true;
 
     return false;
+}
+
+void InitLocalIP(pcap_if_t* device)
+{
+    for (pcap_addr_t* addr = device->addresses; addr != NULL; addr = addr->next) {
+        if (addr->addr->sa_family == AF_INET) {
+            struct sockaddr_in* ipv4 = (struct sockaddr_in*)addr->addr;
+            g_localIP = ipv4->sin_addr.s_addr;  // Already in network byte order
+            break;
+        }
+    }
 }
 
 static void CaptureLoop()
@@ -192,6 +228,23 @@ bool StartCapture(int deviceIndex, const std::string& filter)
         return false;
 
     g_handle = pcap_open_live(devName.c_str(), 65536, 1, 100, errbuf);
+
+    pcap_if_t* alldevs = nullptr;
+    if (pcap_findalldevs(&alldevs, errbuf) == 0) {
+        for (pcap_if_t* d = alldevs; d != nullptr; d = d->next) {
+            if (devName == d->name) {
+                for (pcap_addr_t* a = d->addresses; a != nullptr; a = a->next) {
+                    if (a->addr && a->addr->sa_family == AF_INET) {
+                        g_localIP = ((struct sockaddr_in*)a->addr)->sin_addr.s_addr;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        pcap_freealldevs(alldevs);
+    }
+
     if (!g_handle)
         return false;
 
@@ -267,4 +320,10 @@ bool SavePcap(const std::string& filename)
     pcap_dump_close(dumper);
     pcap_close(dead);
     return true;
+}
+
+std::vector<std::string> GetDebugLog3()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return { g_debugLog.begin(), g_debugLog.end() };
 }

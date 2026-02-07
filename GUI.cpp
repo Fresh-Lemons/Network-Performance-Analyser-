@@ -467,9 +467,7 @@ void RenderGui(float dt)
     if (!IsCapturing()) {
         if (selectedDevice >= 0 && ImGui::Button("Start")) {
             StartCapture(selectedDevice, "");
-            DebugLog2("Starting");
             StartAppBandwidth();
-            DebugLog2("Started");
         }
     }
     else {
@@ -679,14 +677,11 @@ void RenderGui(float dt)
     ImGui::BeginChild("DebugLog", ImVec2(0, 150), true);
 
     auto log = GetDebugLog1();
-    auto log1 = GetDebugLog2();
+    auto log3 = GetDebugLog3();
     bool scrollToBottom =
         ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
 
     for (const auto& line : log) {
-        ImGui::TextUnformatted(line.c_str());
-    }
-    for (const auto& line : log1) {
         ImGui::TextUnformatted(line.c_str());
     }
 

@@ -66,51 +66,46 @@ static std::string GetProcessName(DWORD pid)
     return name;
 }
 
-void WINAPI EventCallback(PEVENT_RECORD record)
-{
-    DebugLog("Event received");
- 
-    if (!record)
-        return;
-
-    USHORT id = record->EventHeader.EventDescriptor.Id;
-    if (id != 10 && id != 11)
-        return;
-
-    DWORD pid = record->EventHeader.ProcessId;
-
-    PROPERTY_DATA_DESCRIPTOR desc{};
-    desc.PropertyName = (ULONGLONG)L"size";
-    desc.ArrayIndex = ULONG_MAX;
-
-    ULONG size = 0;
-    ULONG outSize = sizeof(size);
-
-    if (TdhGetProperty(record,
-        0,
-        nullptr,
-        1,
-        &desc,
-        outSize,
-        (PBYTE)&size) != ERROR_SUCCESS)
-        return;
-
-    std::lock_guard<std::mutex> lock(g_mutex);
-
-    auto& app = g_apps[pid];
-    app.totalBytes += size;
-    app.bytesThisSecond += size;
-}
-
 static void TraceThread()
 {
     ProcessTrace(&g_traceHandle, 1, nullptr, nullptr);
 }
 
+void WINAPI EventCallback(PEVENT_RECORD record)
+{
+    if (!record)
+        return;
+    
+    UCHAR opcode = record->EventHeader.EventDescriptor.Opcode;
+    
+    if (opcode != 32)
+        return;
+    
+    DWORD pid = record->EventHeader.ProcessId;
+    
+    if (record->UserDataLength < 36) 
+        return;
+    
+    ULONG* data = (ULONG*)record->UserData;
+    ULONG size = data[8];
+    
+    if (size == 0 || size > 65536)
+        return;
+    
+    std::lock_guard<std::mutex> lock(g_mutex);
+    
+    auto& app = g_apps[pid];
+    app.totalBytes += size;
+    app.bytesThisSecond += size;
+    
+    char buf[128];
+    snprintf(buf, sizeof(buf), "PID %u: +%u bytes (total: %llu)", 
+        pid, size, app.totalBytes);
+    DebugLog(buf);
+}
+
 bool StartAppBandwidth()
 {
-    DebugLog("ETW session started");
-
     if (g_running)
         return false;
 
@@ -119,36 +114,35 @@ bool StartAppBandwidth()
 
     props->Wnode.BufferSize = bufferSize;
     props->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
-    props->Wnode.Guid = SystemTraceControlGuid;
     props->Wnode.ClientContext = 1;
     props->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-    props->EnableFlags = EVENT_TRACE_FLAG_NETWORK_TCPIP;
+    props->EnableFlags = EVENT_TRACE_FLAG_NETWORK_TCPIP;  
     props->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
-    DebugLog("Here");
+
+
     ControlTrace(0, KERNEL_LOGGER_NAME, props, EVENT_TRACE_CONTROL_STOP);
 
-    ULONG status = StartTrace(&g_sessionHandle,
-        KERNEL_LOGGER_NAME,
-        props);
+    ULONG status = StartTrace(&g_sessionHandle, KERNEL_LOGGER_NAME, props);
 
-    if (status != ERROR_SUCCESS)
-    {
-        DebugLog("Kernel StartTrace failed");
+    if (status != ERROR_SUCCESS) {
         free(props);
         return false;
     }
-    
+
     EVENT_TRACE_LOGFILE log{};
     log.LoggerName = (LPWSTR)KERNEL_LOGGER_NAME;
-    log.ProcessTraceMode =
-        PROCESS_TRACE_MODE_REAL_TIME |
-        PROCESS_TRACE_MODE_EVENT_RECORD;
+    log.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
     log.EventRecordCallback = EventCallback;
+
     g_traceHandle = OpenTrace(&log);
+    if (g_traceHandle == INVALID_PROCESSTRACE_HANDLE) {
+        ControlTrace(g_sessionHandle, nullptr, props, EVENT_TRACE_CONTROL_STOP);
+        free(props);
+        return false;
+    }
 
     g_running = true;
     g_traceThread = std::thread(TraceThread);
-    DebugLog("Here2");
 
     free(props);
     return true;

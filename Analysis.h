@@ -26,6 +26,7 @@ struct Packet
     uint32_t tcpPayloadLen = 0;
     uint32_t tcpTsVal = 0;
     uint32_t tcpTsEcr = 0;
+	double timestamp = 0;
 };
 
 #pragma pack(push, 1)
