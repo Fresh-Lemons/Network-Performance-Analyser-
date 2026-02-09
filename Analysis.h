@@ -6,7 +6,6 @@
 #include <map>
 #include <optional>
 
-// ---------------- Packet ----------------
 struct Packet
 {
     std::string srcIP;
@@ -31,25 +30,6 @@ struct Packet
 
 #pragma pack(push, 1)
 
-struct EthernetHeader {
-    uint8_t dst[6];
-    uint8_t src[6];
-    uint16_t type;
-};
-
-struct IPv4Header {
-    uint8_t  ver_ihl;
-    uint8_t  tos;
-    uint16_t len;
-    uint16_t id;
-    uint16_t flags_offset;
-    uint8_t  ttl;
-    uint8_t  protocol;
-    uint16_t checksum;
-    uint32_t src;
-    uint32_t dst;
-};
-
 struct IcmpHeader {
     uint8_t  type;
     uint8_t  code;
@@ -60,7 +40,6 @@ struct IcmpHeader {
 
 #pragma pack(pop)
 
-// ---------------- Metrics ----------------
 struct Metrics
 {
     uint64_t totalPackets = 0;
@@ -80,7 +59,6 @@ struct Metrics
 	double timeElapsed = 0.0;
 };
 
-// ---------------- Flow ----------------
 struct FlowKey
 {
     std::string srcIP;
@@ -99,9 +77,9 @@ struct FlowStats
     double firstSeen = 0.0;
     double lastSeen = 0.0;
 
-    std::vector<double> latencyHistory;     // ms
-    std::vector<double> packetLossHistory;  // %
-    std::vector<double> jitterHistory;      // ms
+    std::vector<double> latencyHistory;
+    std::vector<double> packetLossHistory;
+    std::vector<double> jitterHistory;
     std::vector<double> requestTimes;     
     uint64_t totalRequests = 0;
     uint64_t totalResponses = 0;
@@ -110,11 +88,6 @@ struct FlowStats
     std::unordered_map<uint16_t, double> icmpRequests;
     uint64_t echoRequests = 0;
     uint64_t echoReplies = 0;
-
-    uint32_t nextSeqUp = 0;
-    uint32_t nextSeqDown = 0;
-    bool seqUpInitialized = false;
-    bool seqDownInitialized = false;
 
     std::unordered_map<uint32_t, double> tcpTsSent;
 
@@ -136,19 +109,6 @@ struct Protocols {
     float udpBytes;
     float icmpBytes;
     float otherBytes;
-};
-
-struct AppBandwidth {
-    uint64_t bytesSent = 0;
-    uint64_t bytesRecv = 0;
-};
-
-struct TcpSnapshot {
-    uint32_t pid;
-    uint32_t localPort;
-    uint32_t remotePort;
-    uint64_t sent;
-    uint64_t recv;
 };
 
 // ---------------- Analysis API ----------------

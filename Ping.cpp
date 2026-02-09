@@ -21,9 +21,7 @@
 double Now()
 {
     using namespace std::chrono;
-    return duration<double>(
-        steady_clock::now().time_since_epoch()
-    ).count();
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
 static void EnsureWinsock()
@@ -35,7 +33,6 @@ static void EnsureWinsock()
         initialized = true;
     }
 }
-
 
 bool Ping::Start(const char* ip, int count)
 {
@@ -64,16 +61,7 @@ bool Ping::Start(const char* ip, int count)
     for (int i = 0; i < count; ++i) {
         double t0 = Now();
 
-        DWORD res = IcmpSendEcho(
-            icmp,
-            dst,
-            sendData,
-            sizeof(sendData),
-            nullptr,
-            replyBuf,
-            sizeof(replyBuf),
-            1000
-        );
+        DWORD res = IcmpSendEcho(icmp, dst, sendData, sizeof(sendData), nullptr, replyBuf, sizeof(replyBuf), 1000);
 
         sent++;
 

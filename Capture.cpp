@@ -52,15 +52,6 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     const u_char* l3 = data + 14;
     pkt.timestamp = (double)header->ts.tv_sec + (double)header->ts.tv_usec / 1000000.0;
 
-    char buf[256];
-    snprintf(buf, sizeof(buf),
-        "tv_sec = %ld, tv_usec = %ld, calculated = %.6f",
-        (long)header->ts.tv_sec,
-        (long)header->ts.tv_usec,
-        (double)header->ts.tv_sec + (double)header->ts.tv_usec / 1000000.0
-    );
-    DebugLog(buf);
-
     if (header->caplen < 14 + 20) return;
     uint16_t ethType = (data[12] << 8) | data[13];
     if (ethType == 0x86DD) { // IPv6
@@ -91,10 +82,8 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
     uint8_t ipProto = ip[9];
     uint32_t srcIP = *(uint32_t*)(ip + 12);
     uint32_t dstIP = *(uint32_t*)(ip + 16);
-    pkt.srcIP = std::to_string(srcIP & 0xFF) + "." + std::to_string((srcIP >> 8) & 0xFF) +
-        "." + std::to_string((srcIP >> 16) & 0xFF) + "." + std::to_string((srcIP >> 24) & 0xFF);
-    pkt.dstIP = std::to_string(dstIP & 0xFF) + "." + std::to_string((dstIP >> 8) & 0xFF) +
-        "." + std::to_string((dstIP >> 16) & 0xFF) + "." + std::to_string((dstIP >> 24) & 0xFF);
+    pkt.srcIP = std::to_string(srcIP & 0xFF) + "." + std::to_string((srcIP >> 8) & 0xFF) + "." + std::to_string((srcIP >> 16) & 0xFF) + "." + std::to_string((srcIP >> 24) & 0xFF);
+    pkt.dstIP = std::to_string(dstIP & 0xFF) + "." + std::to_string((dstIP >> 8) & 0xFF) + "." + std::to_string((dstIP >> 16) & 0xFF) + "." + std::to_string((dstIP >> 24) & 0xFF);
 
     if (ipProto == 6 && header->caplen >= 14 + ihl + 4) { // TCP
         const u_char* l4 = ip + ihl;
@@ -192,7 +181,7 @@ void InitLocalIP(pcap_if_t* device)
     for (pcap_addr_t* addr = device->addresses; addr != NULL; addr = addr->next) {
         if (addr->addr->sa_family == AF_INET) {
             struct sockaddr_in* ipv4 = (struct sockaddr_in*)addr->addr;
-            g_localIP = ipv4->sin_addr.s_addr;  // Already in network byte order
+            g_localIP = ipv4->sin_addr.s_addr;
             break;
         }
     }

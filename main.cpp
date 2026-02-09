@@ -13,6 +13,7 @@
 #include "Gui.h"
 #include "Capture.h"
 #include "Analysis.h"
+#include "AppBandwidth.h"
 
 // Link DirectX & Winsock / pcap libraries
 #pragma comment(lib, "d3d11.lib")
@@ -141,6 +142,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     }
 
     // Cleanup
+    StopAppBandwidth();
     StopCapture();
     ImPlot::DestroyContext();
     ImGui_ImplDX11_Shutdown();
@@ -177,6 +179,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
+        return 0;
+    case WM_CLOSE:
+        StopAppBandwidth();
+        StopCapture();
+        DestroyWindow(hWnd);
         return 0;
     default:
         return DefWindowProc(hWnd, msg, wParam, lParam);

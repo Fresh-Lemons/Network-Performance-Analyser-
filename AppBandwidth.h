@@ -4,7 +4,7 @@
 
 struct AppDisplay {
     std::string name;
-    uint64_t totalBytes;
+    double totalBytes;
     double rateMB;
 };
 

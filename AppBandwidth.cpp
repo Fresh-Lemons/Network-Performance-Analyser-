@@ -22,7 +22,7 @@
 #pragma comment(lib, "psapi.lib")
 
 static std::deque<std::string> g_debugLog;
-static constexpr size_t MAX_DEBUG_LINES = 200;
+static constexpr size_t MAX_DEBUG_LINES = 500;
 char buf[32];
 
 static void DebugLog(const std::string& s)
@@ -56,8 +56,8 @@ static std::string GetProcessName(DWORD pid)
 {
     char name[MAX_PATH] = "Unknown";
 
-    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-        FALSE, pid);
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+
     if (h) {
         GetModuleBaseNameA(h, nullptr, name, MAX_PATH);
         CloseHandle(h);
@@ -66,9 +66,15 @@ static std::string GetProcessName(DWORD pid)
     return name;
 }
 
-static void TraceThread()
+void TraceThread()
 {
-    ProcessTrace(&g_traceHandle, 1, nullptr, nullptr);
+    ULONG status = ProcessTrace(&g_traceHandle, 1, nullptr, nullptr);
+    /*if (status != ERROR_SUCCESS && g_running)
+    {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "ProcessTrace exited: %lu", status);
+        DebugLog(buf);
+    }*/
 }
 
 void WINAPI EventCallback(PEVENT_RECORD record)
@@ -78,30 +84,22 @@ void WINAPI EventCallback(PEVENT_RECORD record)
     
     UCHAR opcode = record->EventHeader.EventDescriptor.Opcode;
     
-    if (opcode != 32)
+    if (record->UserDataLength < sizeof(ULONG) * 2)
         return;
-    
-    DWORD pid = record->EventHeader.ProcessId;
-    
-    if (record->UserDataLength < 36) 
-        return;
-    
+
     ULONG* data = (ULONG*)record->UserData;
-    ULONG size = data[8];
-    
+
+    DWORD pid = data[0];
+    ULONG size = data[1];
+
     if (size == 0 || size > 65536)
         return;
-    
+
     std::lock_guard<std::mutex> lock(g_mutex);
     
     auto& app = g_apps[pid];
     app.totalBytes += size;
     app.bytesThisSecond += size;
-    
-    char buf[128];
-    snprintf(buf, sizeof(buf), "PID %u: +%u bytes (total: %llu)", 
-        pid, size, app.totalBytes);
-    DebugLog(buf);
 }
 
 bool StartAppBandwidth()
@@ -109,34 +107,46 @@ bool StartAppBandwidth()
     if (g_running)
         return false;
 
-    ULONG bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + 1024;
+    ULONG bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + (ULONG)((wcslen(KERNEL_LOGGER_NAME) + 1) * sizeof(WCHAR));
     auto* props = (EVENT_TRACE_PROPERTIES*)calloc(1, bufferSize);
 
     props->Wnode.BufferSize = bufferSize;
     props->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
+    props->Wnode.Guid = SystemTraceControlGuid;
     props->Wnode.ClientContext = 1;
     props->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-    props->EnableFlags = EVENT_TRACE_FLAG_NETWORK_TCPIP;  
+    props->EnableFlags = EVENT_TRACE_FLAG_NETWORK_TCPIP;
     props->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
-
 
     ControlTrace(0, KERNEL_LOGGER_NAME, props, EVENT_TRACE_CONTROL_STOP);
 
+    Sleep(200);
+
     ULONG status = StartTrace(&g_sessionHandle, KERNEL_LOGGER_NAME, props);
 
-    if (status != ERROR_SUCCESS) {
+    if (status != ERROR_SUCCESS)
+    {
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+            "StartTrace failed: %lu", status);
+        DebugLog(buf);
+
         free(props);
         return false;
     }
 
     EVENT_TRACE_LOGFILE log{};
     log.LoggerName = (LPWSTR)KERNEL_LOGGER_NAME;
-    log.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
+    log.ProcessTraceMode =
+        PROCESS_TRACE_MODE_REAL_TIME |
+        PROCESS_TRACE_MODE_EVENT_RECORD;
     log.EventRecordCallback = EventCallback;
 
     g_traceHandle = OpenTrace(&log);
-    if (g_traceHandle == INVALID_PROCESSTRACE_HANDLE) {
-        ControlTrace(g_sessionHandle, nullptr, props, EVENT_TRACE_CONTROL_STOP);
+
+    if (g_traceHandle == INVALID_PROCESSTRACE_HANDLE)
+    {
+        DebugLog("OpenTrace failed");
         free(props);
         return false;
     }
@@ -156,14 +166,23 @@ void StopAppBandwidth()
     g_running = false;
 
     CloseTrace(g_traceHandle);
-
-    ControlTrace(g_sessionHandle,
-        L"MyNetSession",
-        nullptr,
-        EVENT_TRACE_CONTROL_STOP);
+    g_traceHandle = INVALID_PROCESSTRACE_HANDLE;
 
     if (g_traceThread.joinable())
         g_traceThread.join();
+
+    ULONG bufferSize = sizeof(EVENT_TRACE_PROPERTIES) + (ULONG)((wcslen(KERNEL_LOGGER_NAME) + 1) * sizeof(WCHAR));
+
+    auto* props = (EVENT_TRACE_PROPERTIES*)calloc(1, bufferSize);
+
+    props->Wnode.BufferSize = bufferSize;
+    props->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
+
+    ControlTrace(0, KERNEL_LOGGER_NAME, props, EVENT_TRACE_CONTROL_STOP);
+
+    free(props);
+
+    g_sessionHandle = 0;
 }
 
 void UpdateAppBandwidth(double dt)
@@ -171,9 +190,7 @@ void UpdateAppBandwidth(double dt)
     std::lock_guard<std::mutex> lock(g_mutex);
 
     for (auto& [pid, app] : g_apps) {
-        app.rateMB =
-            (app.bytesThisSecond / dt) / (1024.0 * 1024.0);
-
+        app.rateMB = (app.bytesThisSecond) / (1024.0 * 1024.0);
         app.bytesThisSecond = 0;
     }
 }

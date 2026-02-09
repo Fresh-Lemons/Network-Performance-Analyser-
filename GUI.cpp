@@ -42,7 +42,7 @@ std::vector<std::string> GetDebugLog2()
     std::lock_guard<std::mutex> lock(g_mutex);
     return { g_debugLog.begin(), g_debugLog.end() };
 }
-// For turning bytes into kilobytes, megabytes, etc.
+// For turning bytes into kilobytes, megabytes and so on.
 static const char* FormatBytes(uint64_t bytes, char* buf, size_t bufSize)
 {
     const char* units[] = { "B", "KB", "MB", "GB", "TB" };
@@ -87,8 +87,7 @@ void PlotBandwidthStacked(
 
     size_t n = std::min(up.size(), down.size());
     total.resize(n);
-    float maxKbps = total.empty() ? 0.0f
-        : *std::max_element(total.begin(), total.end());
+    float maxKbps = total.empty() ? 0.0f : *std::max_element(total.begin(), total.end());
     for (size_t i = 0; i < n; ++i)
         total[i] = up[i] + down[i];
 
@@ -96,16 +95,9 @@ void PlotBandwidthStacked(
     ImPlot::PushStyleVar(ImPlotStyleVar_PlotPadding, ImVec2(0, 0));
     ImPlot::PushStyleVar(ImPlotStyleVar_LabelPadding, ImVec2(0, 0));
 
-    if (ImPlot::BeginPlot(
-        "##Bandwidth",
-        ImVec2(-1, ImGui::GetContentRegionAvail().y / 2),
-        ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
+    if (ImPlot::BeginPlot("##Bandwidth", ImVec2(-1, ImGui::GetContentRegionAvail().y / 2), ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
-        ImPlot::SetupAxes(
-            nullptr, nullptr,
-            ImPlotAxisFlags_NoDecorations,
-            ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit
-        );
+        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations, ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit);
 
         ImPlot::SetupAxisLimits(ImAxis_X1, 150, (double)n, ImGuiCond_Always);
         ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxKbps * 1.1f, ImGuiCond_Always);
@@ -127,20 +119,12 @@ void PlotBandwidthStacked(
         ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
         ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
 
-        draw->AddText(
-            ImVec2(tl.x + 6, tl.y + 6),
-            IM_COL32(200, 200, 200, 255),
-            "Throughput"
-        );
+        draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Throughput");
 
         char buf[64];
         snprintf(buf, sizeof(buf), "%.1f Mbs", maxKbps * 1.1 / 1024);
 
-        draw->AddText(
-            ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6),
-            IM_COL32(200, 200, 200, 255),
-            buf
-        );
+        draw->AddText(ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6), IM_COL32(200, 200, 200, 255), buf);
 
         ImPlot::PlotText("30", limits.X.Min, limits.Y.Min, ImVec2(10, -8));
         ImPlot::PlotText("0", limits.X.Max, limits  .Y.Min, ImVec2(-10, -8));
@@ -204,16 +188,9 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
     ImPlot::PushStyleVar(ImPlotStyleVar_PlotPadding, ImVec2(0, 0));
     ImPlot::PushStyleVar(ImPlotStyleVar_LabelPadding, ImVec2(0, 0));
 
-    if (ImPlot::BeginPlot(
-        "##ProtocolStacked",
-        ImVec2(-1, ImGui::GetContentRegionAvail().y / 2),
-        ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
+    if (ImPlot::BeginPlot("##ProtocolStacked", ImVec2(-1, ImGui::GetContentRegionAvail().y / 2), ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
-        ImPlot::SetupAxes(
-            nullptr, nullptr,
-            ImPlotAxisFlags_NoDecorations,
-            ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit
-        );
+        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations, ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit);
 
         // 30-second window (assuming 5 Hz sampling ? 150 points)
         ImPlot::SetupAxisLimits(ImAxis_X1, n - 150, n, ImGuiCond_Always);
@@ -243,20 +220,12 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
         ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
         ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
 
-        draw->AddText(
-            ImVec2(tl.x + 6, tl.y + 6),
-            IM_COL32(200, 200, 200, 255),
-            "Protocol bandwidth"
-        );
+        draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Protocol bandwidth");
 
         char buf[64];
         snprintf(buf, sizeof(buf), "%.1f KB/s", maxRate);
 
-        draw->AddText(
-            ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6),
-            IM_COL32(200, 200, 200, 255),
-            buf
-        );
+        draw->AddText(ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6), IM_COL32(200, 200, 200, 255), buf);
 
         ImPlot::PlotText("30", limits.X.Min, limits.Y.Min, ImVec2(10, -8));
         ImPlot::PlotText("0", limits.X.Max, limits.Y.Min, ImVec2(-10, -8));
@@ -301,14 +270,9 @@ void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
     for (int i = start; i < n; ++i)
         maxLatency = std::max(maxLatency, latencyMs[i]);
 
-    if (ImPlot::BeginPlot(
-        "##Latency (ms)",
-        ImVec2(-1, graphHeight),
-        ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
+    if (ImPlot::BeginPlot("##Latency (ms)", ImVec2(-1, graphHeight), ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
-        ImPlot::SetupAxes(nullptr, nullptr,
-            ImPlotAxisFlags_NoTickLabels,
-            ImPlotAxisFlags_AutoFit);
+        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoTickLabels, ImPlotAxisFlags_AutoFit);
 
         ImPlot::SetupAxisLimits(ImAxis_X1, 0, count, ImGuiCond_Always);
         ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxLatency * 1.1f, ImGuiCond_Always);
@@ -421,7 +385,7 @@ void RenderGui(float dt)
 
     if (IsCapturing()) {
         metricAccum += dt;
-        if (metricAccum >= 0.2) {
+        if (metricAccum >= 0.5) {
             UpdateMetrics(metricAccum);
             metricAccum = 0.0;
         }
@@ -439,11 +403,7 @@ void RenderGui(float dt)
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
 
-    ImGui::Begin("Dashboard", nullptr,
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin("Dashboard", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
     // =====================================================
     // TOP BAR
@@ -472,8 +432,8 @@ void RenderGui(float dt)
     }
     else {
         if (ImGui::Button("Stop")) {
-            StopCapture();
             StopAppBandwidth();
+            StopCapture();
         }
     }
 
@@ -549,9 +509,7 @@ void RenderGui(float dt)
     // -------------------------------------------------
     float graphHeight = upperHeight * 0.45f;
 
-    if (ImGui::BeginTable("LeftGraphs", 2,
-        ImGuiTableFlags_BordersInner |
-        ImGuiTableFlags_Resizable))
+    if (ImGui::BeginTable("LeftGraphs", 2, ImGuiTableFlags_BordersInner | ImGuiTableFlags_Resizable))
     {
         ImGui::TableNextRow();
 
@@ -629,12 +587,12 @@ void RenderGui(float dt)
         }
         ImGui::EndTable();
 
-        ImGui::Text("Top Applications (Not Accurate)");
-
+        ImGui::Text("Top Applications");
+        char buf[32];
+        
         auto apps = GetTopApplications(6);
 
-        ImGui::BeginTable("AppsTable", 3,
-            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
+        ImGui::BeginTable("AppsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
 
         ImGui::TableSetupColumn("Application");
         ImGui::TableSetupColumn("Total");
@@ -651,14 +609,12 @@ void RenderGui(float dt)
 
             // Total used
             ImGui::TableSetColumnIndex(1);
-            ImGui::TextUnformatted(FormatBytes(a.totalBytes, Buf, sizeof(Buf)));
+            ImGui::TextUnformatted(FormatBytes(a.totalBytes, buf, sizeof(buf)));
 
             // Current rate
             ImGui::TableSetColumnIndex(2);
-            if (a.rateMB > 0.001)
-                ImGui::Text("%.2f MB/s", FormatBytes(a.rateMB, Buf, sizeof(Buf)));
-            else
-                ImGui::TextUnformatted("—");
+           
+            ImGui::Text("%.2f", a.rateMB);
         }
 
         ImGui::EndTable();
@@ -670,7 +626,7 @@ void RenderGui(float dt)
     
 
 	// Debug Console (disabled by default)
-    
+    /*
     ImGui::Separator();
     ImGui::Text("Debug Log");
 
@@ -690,31 +646,27 @@ void RenderGui(float dt)
         ImGui::SetScrollHereY(1.0f);
 
     ImGui::EndChild();
-    
+    */
     ImGui::Separator();
-
     // =====================================================
     // PACKET LIST (FULL WIDTH)
     // =====================================================
     ImGui::Text("Recent Packets (Last 1000)");
-    ImGui::BeginChild("Packets", ImVec2(0, packetListHeight), true,
-        ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("Packets", ImVec2(0, packetListHeight), true, ImGuiWindowFlags_HorizontalScrollbar);
+    bool scrollToBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
 
     auto packets = GetRecentPackets(1000);
     for (int i = 0; i < (int)packets.size(); i++) {
         const auto& p = packets[i];
         ImGui::PushID(i);
 
-        std::string label =
-            p.srcIP + ":" + std::to_string(p.srcPort) +
-            " - " +
-            p.dstIP + ":" + std::to_string(p.dstPort) +
-            "  " + p.protocol;
+        std::string label = p.srcIP + ":" + std::to_string(p.srcPort) + " - " + p.dstIP + ":" + std::to_string(p.dstPort) + "  " + p.protocol;
 
         ImGui::Selectable(label.c_str());
         ImGui::PopID();
     }
-
+    if (scrollToBottom)
+        ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
     ImGui::End();
 }

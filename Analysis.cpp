@@ -75,14 +75,7 @@ std::string WideStringToUtf8(const std::wstring& wstr) {
     if (wstr.empty()) return std::string();
 
     // Get the size needed for the UTF-8 string
-    int size_needed = WideCharToMultiByte(
-        CP_UTF8,            // convert to UTF-8
-        0,                  // no special flags
-        wstr.c_str(),       // input wide string
-        (int)wstr.length(), // length of input
-        nullptr, 0,         // no output buffer yet
-        nullptr, nullptr
-    );
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), nullptr, 0, nullptr, nullptr);
 
     std::string result(size_needed, 0);
 
@@ -104,24 +97,10 @@ std::wstring Utf8ToWide(const std::string& s) {
     if (s.empty())
         return {};
 
-    int size = MultiByteToWideChar(
-        CP_UTF8,
-        0,
-        s.c_str(),
-        (int)s.size(),
-        nullptr,
-        0
-    );
+    int size = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
 
     std::wstring result(size, 0);
-    MultiByteToWideChar(
-        CP_UTF8,
-        0,
-        s.c_str(),
-        (int)s.size(),
-        &result[0],
-        size
-    );
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &result[0], size);
 
     return result;
 }
@@ -178,17 +157,8 @@ std::vector<AdapterInfo> GetAdapters()
                 }
             }
         }
-        /*char dbg[256];
-        snprintf(dbg, sizeof(dbg),
-            "[ADAPTER] IfIndex=%lu Name=%s LinkSpeed=%llu\n",
-            pCurr->IfIndex,
-            adapter.FriendlyName.c_str(),
-            (unsigned long long)pCurr->TransmitLinkSpeed);
-        DebugLog(dbg);
-        DebugLog("[PCAP] Active IfIndex=" + std::to_string(g_activeIfIndex));
-        */
-        adapters.push_back(std::move(adapter));
 
+        adapters.push_back(std::move(adapter));
     }
 
     return adapters;
@@ -239,7 +209,6 @@ bool GetNicBytes(NET_IFINDEX ifIndex,
     return true;
 }
 
-// ---------------- Time ----------------
 static double Now()
 {
     using namespace std::chrono;
@@ -248,7 +217,6 @@ static double Now()
     return duration<double>(now - start).count();
 }
 
-// ---------------- Flow hashing ----------------
 static size_t HashFlow(const FlowKey& k)
 {
     size_t h = std::hash<std::string>()(k.srcIP);
@@ -259,7 +227,6 @@ static size_t HashFlow(const FlowKey& k)
     return h;
 }
 
-// ---------------- Flow update ----------------
 static void UpdateFlows(const Packet& pkt)
 {
     FlowKey key;
@@ -297,7 +264,7 @@ static void UpdateFlows(const Packet& pkt)
 
     flow.stats.lastSeen = t;
 
-    // bytes/packets counting
+    // Upload + download
     if (!pkt.isOutbound) {
         flow.stats.bytesDown += pkt.length;
         flow.stats.packetsDown++;
@@ -313,11 +280,11 @@ static void UpdateFlows(const Packet& pkt)
         auto& stats = flow.stats;
         double now = pkt.timestamp;
         bool usedTimestamp = false;
-        
-        // TCP Timestamp RTT
+
+        // Timestamp RTT
         if (pkt.tcpTsVal != 0 || pkt.tcpTsEcr != 0) {
             if (pkt.isOutbound && pkt.tcpTsVal != 0) {
-                stats.tcpTsSent[pkt.tcpTsVal] = now;  // now from pcap
+                stats.tcpTsSent[pkt.tcpTsVal] = now;
             }
             if (!pkt.isOutbound && pkt.tcpTsEcr != 0) {
                 auto it = stats.tcpTsSent.find(pkt.tcpTsEcr);
@@ -329,8 +296,7 @@ static void UpdateFlows(const Packet& pkt)
                 }
             }
         }
-
-        // SEQ/ACK RTT (fallback only)
+        // Seq RTT
         if (!usedTimestamp) {
             if (pkt.isOutbound && pkt.tcpPayloadLen > 0) {
                 uint32_t endSeq = pkt.tcpSeq + pkt.tcpPayloadLen;
@@ -349,36 +315,14 @@ static void UpdateFlows(const Packet& pkt)
                 }
             }
         }
-
-        if (pkt.isOutbound && pkt.tcpPayloadLen > 0) {
-
-            if (!stats.seqUpInitialized) {
-                stats.nextSeqUp = pkt.tcpSeq + pkt.tcpPayloadLen;
-                stats.seqUpInitialized = true;
-            }
-            else if (pkt.tcpSeq == stats.nextSeqUp) {
-                stats.nextSeqUp += pkt.tcpPayloadLen;
-            }
-        }
-        if (!pkt.isOutbound && pkt.tcpPayloadLen > 0) {
-
-            if (!stats.seqDownInitialized) {
-                stats.nextSeqDown = pkt.tcpSeq + pkt.tcpPayloadLen;
-                stats.seqDownInitialized = true;
-            }
-            else if (pkt.tcpSeq == stats.nextSeqDown) {
-                stats.nextSeqDown += pkt.tcpPayloadLen;
-            }
-        }
     }
 
-    // --- ICMP RTT & packet loss ---
     if (pkt.protocol == "ICMP") {
-        if (pkt.icmpType == 8 && pkt.isOutbound) { // Echo Request
+        if (pkt.icmpType == 8 && pkt.isOutbound) { // Request
             flow.stats.icmpRequests[pkt.icmpSeq] = t;
             flow.stats.echoRequests++;
         }
-        else if (pkt.icmpType == 0 && !pkt.isOutbound) { // Echo Reply
+        else if (pkt.icmpType == 0 && !pkt.isOutbound) { // Reply
             auto it = flow.stats.icmpRequests.find(pkt.icmpSeq);
             if (it != flow.stats.icmpRequests.end()) {
                 double rttMs = (t - it->second) * 1000.0;
@@ -398,6 +342,7 @@ static void UpdateFlows(const Packet& pkt)
             }
         }
 
+        // Packet loss
         double loss = 0.0;
         if (flow.stats.echoRequests > 0) {
             loss = 100.0 * (flow.stats.echoRequests - flow.stats.echoReplies) / flow.stats.echoRequests;
@@ -409,7 +354,6 @@ static void UpdateFlows(const Packet& pkt)
 }
 
 
-// ---------------- Packet processing ----------------
 void ProcessPacket(const Packet& pkt)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -425,7 +369,6 @@ void ProcessPacket(const Packet& pkt)
     UpdateFlows(pkt);
 }
 
-// ---------------- Metrics update ----------------
 void UpdateMetrics(double dt)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -539,13 +482,6 @@ void UpdateMetrics(double dt)
         "[LAT] push %.2f ms (size=%zu)",
         latencyMs,
         g_latencyHistory.size()
-    );
-    DebugLog(buf);
-
-    snprintf(buf, sizeof(buf),
-        "Protocols %.2f MB/s  Observed %.2f MB/s\n",
-            protoSum,
-            g_metrics.bps / 1024
     );
     DebugLog(buf);
     */
