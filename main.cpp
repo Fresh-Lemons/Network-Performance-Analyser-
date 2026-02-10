@@ -11,7 +11,7 @@
 #include "backends/imgui_impl_win32.h"
 #include "backends/imgui_impl_dx11.h"
 #include "Gui.h"
-#include "Capture.h"
+#include "NpcapCapture.h"
 #include "Analysis.h"
 #include "AppBandwidth.h"
 

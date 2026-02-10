@@ -50,9 +50,11 @@ struct Metrics
     double pps = 0.0;
     double totalMB = 0.0;
     double latency = 0.0;
+	double averageLatency = 0.0;
+	double lastLatency = 0.0;
     double jitter = 0.0;
+	double averageJitter = 0.0;
     double packetLoss = 0.0;
-    double smoothedLatency = 0.0;
     double nicBps = 0.0;
     double linkSpeedBps = 0.0;
     double captureVisibility = 0.0;
@@ -111,6 +113,12 @@ struct Protocols {
     float otherBytes;
 };
 
+enum class ByteSource
+{
+    Npcap,
+    ETW
+};
+
 // ---------------- Analysis API ----------------
 void ProcessPacket(const Packet& pkt);
 void UpdateMetrics(double dt);
@@ -132,4 +140,5 @@ bool ResolveIfIndexFromPcapDevice(const std::string& devName);
 std::vector<Flow> GetTopFlows(size_t maxFlows);
 std::vector<std::pair<std::string, float>> GetTopHosts(size_t maxHosts);
 std::vector<std::string> GetDebugLog();
+const char* GetSourceName();
 extern Protocols g_currentProtocolBytes;

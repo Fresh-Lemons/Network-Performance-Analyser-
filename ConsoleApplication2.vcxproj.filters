@@ -30,7 +30,7 @@
     <ClCompile Include="Analysis.cpp">
       <Filter>Source Files\Analysis</Filter>
     </ClCompile>
-    <ClCompile Include="Capture.cpp">
+    <ClCompile Include="NpcapCapture.cpp">
       <Filter>Source Files\Capture</Filter>
     </ClCompile>
     <ClCompile Include="GUI.cpp">
@@ -77,7 +77,7 @@
     <ClInclude Include="Analysis.h">
       <Filter>Source Files\Analysis</Filter>
     </ClInclude>
-    <ClInclude Include="Capture.h">
+    <ClInclude Include="NpcapCapture.h">
       <Filter>Source Files\Capture</Filter>
     </ClInclude>
     <ClInclude Include="GUI.h">

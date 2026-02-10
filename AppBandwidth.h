@@ -8,6 +8,14 @@ struct AppDisplay {
     double rateMB;
 };
 
+struct ETWMetrics {
+    uint64_t totalBytes = 0;
+    uint64_t totalBytesUp = 0;
+    uint64_t totalBytesDown = 0;
+};
+
+extern ETWMetrics g_etwMetrics;
+
 bool StartAppBandwidth();
 void StopAppBandwidth();
 void UpdateAppBandwidth(double dtSeconds);

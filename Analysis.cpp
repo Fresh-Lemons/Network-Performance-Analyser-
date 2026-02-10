@@ -56,13 +56,21 @@ static uint64_t lastNicIn = 0;
 static uint64_t lastNicOut = 0;
 Protocols g_currentProtocolBytes;
 
-
 static std::unordered_map<size_t, Flow> g_flows;
 
 std::optional<AdapterInfo> g_physicalAdapter;
 ULONG g_activeIfIndex = 0;
 std::optional<GUID> g_activeAdapterGuid;
 
+static ByteSource g_byteSource = ByteSource::Npcap;
+static double g_lowVisibilityTime = 0.0;
+
+const double lowThreshold = 0.1;
+const double highThreshold = 0.3;
+const double holdTime = 2.0;
+
+static double lowTimer = 0.0;
+static double highTimer = 0.0;
 
 static void DebugLog(const std::string& s)
 {
@@ -108,7 +116,7 @@ std::wstring Utf8ToWide(const std::string& s) {
 std::vector<AdapterInfo> GetAdapters()
 {
     std::vector<AdapterInfo> adapters;
-    g_physicalAdapter.reset(); // important
+    g_physicalAdapter.reset();
 
     ULONG outBufLen = 0;
     DWORD dwRetVal = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, nullptr, &outBufLen);
@@ -140,9 +148,7 @@ std::vector<AdapterInfo> GetAdapters()
         char macAddr[18] = {};
         for (ULONG i = 0; i < pCurr->PhysicalAddressLength; ++i)
         {
-            sprintf_s(macAddr + i * 3, sizeof(macAddr) - i * 3,
-                (i + 1 == pCurr->PhysicalAddressLength) ? "%02X" : "%02X-",
-                pCurr->PhysicalAddress[i]);
+            sprintf_s(macAddr + i * 3, sizeof(macAddr) - i * 3, (i + 1 == pCurr->PhysicalAddressLength) ? "%02X" : "%02X-", pCurr->PhysicalAddress[i]);
         }
         adapter.MacAddress = macAddr;
 
@@ -378,16 +384,67 @@ void UpdateMetrics(double dt)
     static uint64_t lastPackets = 0;
     static uint64_t lastUp = 0;
     static uint64_t lastDown = 0;
+    static uint64_t lastETWBytes = 0;
+    static uint64_t lastETWUp = 0;
+    static uint64_t lastETWDown = 0;
+    static double smoothedETWBps = 0.0;
+    static double smoothedETWUpBps = 0.0;
+    static double smoothedETWDownBps = 0.0;
 
-    uint64_t bytes = g_metrics.totalBytes;
-    uint64_t packets = g_metrics.totalPackets;
-    uint64_t up = g_metrics.totalBytesUp;
-    uint64_t down = g_metrics.totalBytesDown;
+    uint64_t bytes = 0;
+    uint64_t packets = 0;
+    uint64_t up = 0;
+    uint64_t down = 0;
 
-    double bps = (bytes - lastBytes) / dt;
+    if (g_byteSource == ByteSource::Npcap)
+    {
+        uint64_t totalBytes = g_metrics.totalBytes;
+        uint64_t totalUp = g_metrics.totalBytesUp;
+        uint64_t totalDown = g_metrics.totalBytesDown;
+
+        bytes = totalBytes - lastBytes;
+        up = totalUp - lastUp;
+        down = totalDown - lastDown;
+
+        lastBytes = totalBytes;
+        lastUp = totalUp;
+        lastDown = totalDown;
+    }
+    else
+    {
+        uint64_t totalBytes = g_etwMetrics.totalBytes;
+        uint64_t totalUp = g_etwMetrics.totalBytesUp;
+        uint64_t totalDown = g_etwMetrics.totalBytesDown;
+
+        uint64_t deltaBytes = totalBytes - lastETWBytes;
+        uint64_t deltaUp = totalUp - lastETWUp;
+        uint64_t deltaDown = totalDown - lastETWDown;
+
+        lastETWBytes = totalBytes;
+        lastETWUp = totalUp;
+        lastETWDown = totalDown;
+
+        const double alpha = 0.4;
+
+        double instantBps = deltaBytes / dt;
+        double instantUpBps = deltaUp / dt;
+        double instantDownBps = deltaDown / dt;
+
+        smoothedETWBps = smoothedETWBps * (1.0 - alpha) + instantBps * alpha;
+        smoothedETWUpBps = smoothedETWUpBps * (1.0 - alpha) + instantUpBps * alpha;
+        smoothedETWDownBps = smoothedETWDownBps * (1.0 - alpha) + instantDownBps * alpha;
+
+        bytes = smoothedETWBps * dt;
+        up = smoothedETWUpBps * dt;
+        down = smoothedETWDownBps * dt;
+    }
+
+    double bps = bytes / dt;
+    double upBps = up / dt;
+    double downBps = down / dt;
+
     double pps = (packets - lastPackets) / dt;
-    double upBps = (up - lastUp) / dt;
-    double downBps = (down - lastDown) / dt;
+    lastPackets = packets;
     float latencyMs = g_metrics.latency;
     float jitterMs = g_metrics.jitter;
     if (!std::isfinite(latencyMs))
@@ -395,13 +452,71 @@ void UpdateMetrics(double dt)
     if (!std::isfinite(jitterMs))
         jitterMs = NAN;
 
-    lastBytes = bytes;
-    lastPackets = packets;
-    lastUp = up;
-    lastDown = down;
+    uint64_t nicIn = 0, nicOut = 0;
+    bool nicOk = GetNicBytes(g_activeIfIndex, nicIn, nicOut);
+
+    double nicBps = 0.0;
+    if (nicOk && lastNicIn != 0) {
+        uint64_t nicDelta = (nicIn + nicOut) - (lastNicIn + lastNicOut);
+        nicBps = nicDelta / dt;
+    }
+
+    lastNicIn = nicIn;
+    lastNicOut = nicOut;
+    g_metrics.nicBps = nicBps;
+    double visibility = 0.0;
+    if (nicBps > 0.0) {
+        visibility = bps / nicBps;
+    }
+
+    g_metrics.captureVisibility = visibility;
+    g_metrics.linkSpeedBps = (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) ? (double)g_physicalAdapter->LinkSpeed : 0.0;
+
+    if (visibility < lowThreshold)
+    {
+        lowTimer += dt;
+        highTimer = 0.0;
+
+        if (lowTimer >= holdTime) {
+            g_byteSource = ByteSource::ETW;
+        }
+    }
+    else if (visibility > highThreshold)
+    {
+        highTimer += dt;
+        lowTimer = 0.0;
+
+        if (highTimer >= holdTime) {
+            g_byteSource = ByteSource::Npcap;
+        }
+    }
+
+    double mbpsLink = 0.0;
+    if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
+        mbpsLink = g_physicalAdapter->LinkSpeed / 1e6;
+    }
+
+    std::string linkSpeedStr = "unknown";
+    if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
+        linkSpeedStr = std::to_string(g_physicalAdapter->LinkSpeed / 1e6) + " Mbps";
+    }
+
     double delta = std::abs(latencyMs - lastLatency);
     jitterMs = 0.9 * jitterMs + 0.1 * delta;
 	lastLatency = latencyMs;
+    float alpha = 0.2f;
+    if (!std::isfinite(latencyMs)) latencyMs = 0.0f;
+
+    g_metrics.averageLatency = g_metrics.averageLatency * (1.0f - alpha) + latencyMs * alpha;
+
+    if (!std::isnan(g_metrics.lastLatency))
+    {
+        float delta = latencyMs - g_metrics.lastLatency;
+        float beta = 0.1f;
+        g_metrics.averageJitter = g_metrics.averageJitter * (1.0f - beta) + std::abs(delta) * beta;
+    }
+
+    g_metrics.lastLatency = latencyMs;
 
 	protocolBytes.tcpBytes = g_currentProtocolBytes.tcpBytes / 1024;
 	protocolBytes.udpBytes = g_currentProtocolBytes.udpBytes / 1024;
@@ -433,47 +548,6 @@ void UpdateMetrics(double dt)
     g_metrics.jitter = jitterMs;
     g_metrics.packetLoss = ComputePacketLoss();
 	g_currentProtocolBytes = { 0,0,0,0 };
-
-    uint64_t nicIn = 0, nicOut = 0;
-    bool nicOk = GetNicBytes(g_activeIfIndex, nicIn, nicOut);
-
-    double nicBps = 0.0;
-    if (nicOk && lastNicIn != 0) {
-        uint64_t nicDelta = (nicIn + nicOut) - (lastNicIn + lastNicOut);
-        nicBps = nicDelta / dt;
-    }
-
-    lastNicIn = nicIn;
-    lastNicOut = nicOut;
-    g_metrics.nicBps = nicBps;
-    double visibility = 0.0;
-    if (nicBps > 0.0) {
-        visibility = bps / nicBps;
-    }
-    g_metrics.captureVisibility = visibility;
-    g_metrics.linkSpeedBps =
-        (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0)
-        ? (double)g_physicalAdapter->LinkSpeed
-        : 0.0;
-
-    static uint64_t lastTotalBytes = 0;
-    uint64_t totalBytes = g_metrics.totalBytes;
-    uint64_t bytesDelta = totalBytes - lastTotalBytes;
-    lastTotalBytes = totalBytes;
-
-    double bbps = bytesDelta / dt;
-    double mbps = bbps * 8.0 / 1e6;
-    double bpsObserved = bytesDelta / dt;
-    double mbpsObserved = (bytesDelta * 8.0) / (dt * 1e6);
-    double mbpsLink = 0.0;
-    if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
-        mbpsLink = g_physicalAdapter->LinkSpeed / 1e6;
-    }
-
-    std::string linkSpeedStr = "unknown";
-    if (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) {
-        linkSpeedStr = std::to_string(g_physicalAdapter->LinkSpeed / 1e6) + " Mbps";
-    }
 
     UpdateAppBandwidth(dt);
     /*
@@ -645,6 +719,17 @@ std::vector<std::pair<std::string, float>> GetTopHosts(size_t maxHosts)
         out.resize(maxHosts);
 
     return out;
+}
+
+const char* GetSourceName()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    switch (g_byteSource)
+    {
+    case ByteSource::Npcap: return "Npcap";
+    case ByteSource::ETW:   return "ETW";
+    default:                return "Unknown";
+    }
 }
 
 std::vector<std::string> GetDebugLog()

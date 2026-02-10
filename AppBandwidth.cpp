@@ -23,6 +23,7 @@
 
 static std::deque<std::string> g_debugLog;
 static constexpr size_t MAX_DEBUG_LINES = 500;
+ETWMetrics g_etwMetrics;
 char buf[32];
 
 static void DebugLog(const std::string& s)
@@ -94,6 +95,12 @@ void WINAPI EventCallback(PEVENT_RECORD record)
 
     if (size == 0 || size > 65536)
         return;
+
+	g_etwMetrics.totalBytes += size;
+    if (opcode == 10)
+        g_etwMetrics.totalBytesUp += size;
+    else if (opcode == 11)
+        g_etwMetrics.totalBytesDown += size;
 
     std::lock_guard<std::mutex> lock(g_mutex);
     

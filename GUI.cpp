@@ -2,7 +2,7 @@
 #define IMPLOT_VERSION_MAJOR
 
 #include "Gui.h"
-#include "Capture.h"
+#include "NpcapCapture.h"
 #include "Analysis.h"
 #include "Ping.h"
 #include "AppBandwidth.h"
@@ -470,9 +470,9 @@ void RenderGui(float dt)
     ImGui::NextColumn();
     ImGui::Text("Total Data\n%s", FormatBytes(m.totalBytes, Buf, sizeof(Buf)));
 	ImGui::NextColumn();
-    ImGui::Text("Average Latency\n%.1f ms", ComputeAverageLatency());
+    ImGui::Text("Average Latency\n%.1f ms", m.averageLatency);
     ImGui::NextColumn();
-    ImGui::Text("Average Jitter\n%.1f ms", ComputeAverageJitter());
+    ImGui::Text("Average Jitter\n%.1f ms", m.averageJitter);
     ImGui::NextColumn();
     ImGui::Text("Packet Loss\n%.1f %%", m.packetLoss);
     ImGui::NextColumn();
@@ -484,6 +484,8 @@ void RenderGui(float dt)
     ImGui::Text("Link Speed\n%.0f MB/s", m.linkSpeedBps / 1e6);
     ImGui::NextColumn();
     ImGui::Text("Time elapsed\n%02d:%02d", minutes, seconds);
+    ImGui::NextColumn();
+    ImGui::Text("Capture Mode\n%s", GetSourceName());
     ImGui::NextColumn();
 
     ImGui::Columns(1);

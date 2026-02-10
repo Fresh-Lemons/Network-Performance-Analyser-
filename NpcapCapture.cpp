@@ -1,4 +1,4 @@
-#include "Capture.h"
+#include "NpcapCapture.h"
 #include "Analysis.h"
 #include <pcap.h>
 #include <thread>
