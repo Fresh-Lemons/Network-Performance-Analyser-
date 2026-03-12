@@ -458,6 +458,7 @@ void RenderGui(float dt)
     {
         ApplyFilter(filter);
     }
+    ImGui::Separator();
 
     // ===========================
     // SUMMARY CARDS
