@@ -452,7 +452,7 @@ void RenderGui(float dt)
     ImGui::BeginChild("Summary", ImVec2(0,60), false);
     ImGui::Columns(7, nullptr, false);
 
-    ImGui::Text("Packets\n%llu", m.totalPackets);
+    ImGui::Text("Total Packets\n%llu", m.totalPackets);
     ImGui::NextColumn();
     ImGui::Text("Bandwidth\n%s", FormatBytes(m.bps, Buf, sizeof(Buf)));
     ImGui::NextColumn();

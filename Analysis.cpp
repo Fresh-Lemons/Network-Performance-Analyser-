@@ -189,9 +189,7 @@ bool ResolveIfIndexFromPcapDevice(const std::string& devName) {
     return true;
 }
 
-bool GetNicBytes(NET_IFINDEX ifIndex,
-    uint64_t& inBytes,
-    uint64_t& outBytes)
+bool GetNicBytes(NET_IFINDEX ifIndex, uint64_t& inBytes, uint64_t& outBytes)
 {
     MIB_IF_ROW2 row{};
     row.InterfaceIndex = ifIndex;
