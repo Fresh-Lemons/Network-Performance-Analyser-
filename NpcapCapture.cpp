@@ -247,11 +247,7 @@ bool StartCapture(int deviceIndex, const std::string& filter)
         return false;
 
     if (!filter.empty()) {
-        bpf_program fp{};
-        if (pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN) == 0) {
-            pcap_setfilter(g_handle, &fp);
-            pcap_freecode(&fp);
-        }
+        ApplyFilter(filter);
     }
 
     g_running = true;
@@ -290,6 +286,17 @@ bool IsCapturing()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_running;
+}
+
+void ApplyFilter(const std::string& filter)
+{
+    if (!g_handle || filter.empty())
+        return;
+
+    bpf_program fp{};
+    pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN);
+    pcap_setfilter(g_handle, &fp);
+    pcap_freecode(&fp);
 }
 
 bool SavePcap(const std::string& filename)

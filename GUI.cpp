@@ -386,6 +386,7 @@ void RenderGui(float dt)
     // TOP BAR
     // =====================================================
     auto devices = GetAvailableDevices();
+    static char filter[256] = "";
 
     ImGui::PushItemWidth(300);
     if (ImGui::BeginCombo(
@@ -403,7 +404,7 @@ void RenderGui(float dt)
     ImGui::SameLine();
     if (!IsCapturing()) {
         if (selectedDevice >= 0 && ImGui::Button("Start")) {
-            StartCapture(selectedDevice, "");
+            StartCapture(selectedDevice, filter);
             StartAppBandwidth();
         }
     }
@@ -446,9 +447,21 @@ void RenderGui(float dt)
     ImGui::Text("Network Loss: %.1f %%  ", g_ping.GetPacketLoss());
     ImGui::Separator();
 
-    // =====================================================
+    // =============
+    // FILTER
+    // =============
+    ImGui::Text("Capture Filter:");
+    ImGui::SameLine();
+    ImGui::InputText("##filter", filter, sizeof(filter));
+    ImGui::SameLine();
+    if (ImGui::Button("Apply Filter"))
+    {
+        ApplyFilter(filter);
+    }
+
+    // ===========================
     // SUMMARY CARDS
-    // =====================================================
+    // ===========================
     ImGui::BeginChild("Summary", ImVec2(0,60), false);
     ImGui::Columns(7, nullptr, false);
 

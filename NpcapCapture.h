@@ -18,3 +18,4 @@ bool IsCapturing();
 std::vector<std::string> GetDebugLog3();
 bool SavePcap(const std::string& filename);
 std::string ShowSaveFileDialog();
+void ApplyFilter(const std::string& filter);
