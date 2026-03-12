@@ -119,11 +119,8 @@ enum class ByteSource
     ETW
 };
 
-// ---------------- Analysis API ----------------
 void ProcessPacket(const Packet& pkt);
 void UpdateMetrics(double dt);
-
-// GUI queries
 Metrics GetMetrics();
 std::vector<float> GetBpsHistory();
 std::vector<float> GetPpsHistory();

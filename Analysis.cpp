@@ -38,11 +38,9 @@ static std::mutex g_mutex;
 static std::deque<std::string> g_debugLog;
 static constexpr size_t MAX_DEBUG_LINES = 200;
 
-// ---------------- Packet storage ----------------
 static std::deque<Packet> g_packets;
 constexpr size_t MAX_PACKETS = 50000;
 
-// ---------------- Metrics ----------------
 static Metrics g_metrics;
 static std::deque<float> g_bpsHistory(300, 0.0f);
 static std::deque<float> g_upBpsHistory(300, 0.0f);
@@ -88,15 +86,7 @@ std::string WideStringToUtf8(const std::wstring& wstr) {
     std::string result(size_needed, 0);
 
     // Perform the actual conversion
-    WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        wstr.c_str(),
-        (int)wstr.length(),
-        &result[0],
-        size_needed,
-        nullptr, nullptr
-    );
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.length(), &result[0], size_needed, nullptr, nullptr);
 
     return result;
 }
@@ -124,8 +114,7 @@ std::vector<AdapterInfo> GetAdapters()
         return adapters;
 
     std::vector<BYTE> buffer(outBufLen);
-    auto* pAddresses =
-        reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
+    auto* pAddresses = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
 
     dwRetVal = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, pAddresses, &outBufLen);
     if (dwRetVal != NO_ERROR)
@@ -443,8 +432,9 @@ void UpdateMetrics(double dt)
     double upBps = up / dt;
     double downBps = down / dt;
 
-    double pps = (packets - lastPackets) / dt;
-    lastPackets = packets;
+    uint64_t totalPackets = g_metrics.totalPackets;
+    double pps = (totalPackets - lastPackets) / dt;
+    lastPackets = totalPackets;
     float latencyMs = g_metrics.latency;
     float jitterMs = g_metrics.jitter;
     if (!std::isfinite(latencyMs))
@@ -472,7 +462,7 @@ void UpdateMetrics(double dt)
     g_metrics.captureVisibility = visibility;
     g_metrics.linkSpeedBps = (g_physicalAdapter && g_physicalAdapter->LinkSpeed > 0) ? (double)g_physicalAdapter->LinkSpeed : 0.0;
 
-    if (visibility < lowThreshold)
+    if (visibility < lowThreshold && nicBps > 1e6)
     {
         lowTimer += dt;
         highTimer = 0.0;
@@ -481,7 +471,7 @@ void UpdateMetrics(double dt)
             g_byteSource = ByteSource::ETW;
         }
     }
-    else if (visibility > highThreshold)
+    else if (visibility > highThreshold && nicBps > 1e6)
     {
         highTimer += dt;
         lowTimer = 0.0;
@@ -501,18 +491,18 @@ void UpdateMetrics(double dt)
         linkSpeedStr = std::to_string(g_physicalAdapter->LinkSpeed / 1e6) + " Mbps";
     }
 
-    double delta = std::abs(latencyMs - lastLatency);
-    jitterMs = 0.9 * jitterMs + 0.1 * delta;
+    bool hasNewSample = latencyMs != lastLatency && latencyMs > 0.0f;
+    if (hasNewSample)
+        jitterMs = std::abs(latencyMs - lastLatency);
 	lastLatency = latencyMs;
-    float alpha = 0.2f;
-    if (!std::isfinite(latencyMs)) latencyMs = 0.0f;
 
+    float alpha = 0.2;
     g_metrics.averageLatency = g_metrics.averageLatency * (1.0f - alpha) + latencyMs * alpha;
 
     if (!std::isnan(g_metrics.lastLatency))
     {
         float delta = latencyMs - g_metrics.lastLatency;
-        float beta = 0.1f;
+        float beta = 0.05;
         g_metrics.averageJitter = g_metrics.averageJitter * (1.0f - beta) + std::abs(delta) * beta;
     }
 
@@ -561,7 +551,6 @@ void UpdateMetrics(double dt)
     */
 }
 
-// ---------------- GUI getters ----------------
 Metrics GetMetrics()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -582,8 +571,6 @@ std::vector<float> GetPpsHistory()
 
 std::vector<Packet> GetRecentPackets(size_t maxCount)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
-
     std::vector<Packet> out;
     if (g_packets.size() > maxCount)
         out.assign(g_packets.end() - maxCount, g_packets.end());

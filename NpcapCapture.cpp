@@ -1,5 +1,10 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <commdlg.h>
 #include "NpcapCapture.h"
 #include "Analysis.h"
+#include <string>
 #include <pcap.h>
 #include <thread>
 #include <mutex>
@@ -7,6 +12,11 @@
 #include <vector>
 #include <cstring>
 #include <deque>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+
+#pragma comment(lib, "Comdlg32.lib")
 
 static std::vector<DeviceInfo> g_devices;
 static pcap_t* g_handle = nullptr;
@@ -91,7 +101,7 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         pkt.dstPort = ntohs(*(uint16_t*)(l4 + 2));
         pkt.tcpSeq = ntohl(*(uint32_t*)(l4 + 4));
         pkt.tcpAck = ntohl(*(uint32_t*)(l4 + 8));
-        uint8_t dataOffset = (l4[12] >> 4) * 4;
+        int32_t dataOffset = (l4[12] >> 4) * 4;
         uint16_t ipTotalLen = ntohs(*(uint16_t*)(ip + 2));
         int32_t payloadLen = (int32_t)ipTotalLen - (int32_t)ihl - (int32_t)dataOffset;
         pkt.tcpPayloadLen = payloadLen;
@@ -148,8 +158,7 @@ static void PacketHandler(u_char* /*user*/, const struct pcap_pkthdr* header, co
         if (payloadLen > 0)
             cur.icmpBytes += payloadLen;
 
-        const IcmpHeader* icmp =
-            reinterpret_cast<const IcmpHeader*>(ip + ihl);
+        const IcmpHeader* icmp = reinterpret_cast<const IcmpHeader*>(ip + ihl);
 
         pkt.icmpType = icmp->type;
         pkt.icmpId = ntohs(icmp->identifier);
@@ -285,11 +294,15 @@ bool IsCapturing()
 
 bool SavePcap(const std::string& filename)
 {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_handle) return false;
+    std::vector<Packet> packets;
 
-    std::vector<Packet> packets = GetRecentPackets(50000);
-    if (packets.empty()) return false;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        packets = GetRecentPackets(500000);
+    }
+
+    if (packets.empty())
+        return false;
 
     pcap_t* dead = pcap_open_dead(DLT_EN10MB, 65535);
     if (!dead) return false;
@@ -309,6 +322,40 @@ bool SavePcap(const std::string& filename)
     pcap_dump_close(dumper);
     pcap_close(dead);
     return true;
+}
+
+std::string GeneratePcapFilename()
+{
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+
+    std::tm tm{};
+    localtime_s(&tm, &time);
+
+    std::ostringstream oss;
+    oss << "capture_" << std::put_time(&tm, "%Y%m%d_%H%M%S") << ".pcap";
+
+    return oss.str();
+}
+
+std::string ShowSaveFileDialog()
+{
+    char fileName[MAX_PATH] = "";
+
+    OPENFILENAMEA ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter = "PCAP Files (*.pcap)\0*.pcap\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = fileName;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrDefExt = "pcap";
+    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+
+    if (GetSaveFileNameA(&ofn))
+    {
+        return std::string(fileName);
+    }
+
+    return "";
 }
 
 std::vector<std::string> GetDebugLog3()

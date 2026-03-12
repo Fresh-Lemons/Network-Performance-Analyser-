@@ -17,3 +17,4 @@ void StopCapture();
 bool IsCapturing();
 std::vector<std::string> GetDebugLog3();
 bool SavePcap(const std::string& filename);
+std::string ShowSaveFileDialog();

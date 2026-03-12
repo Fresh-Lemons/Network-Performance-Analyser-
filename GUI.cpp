@@ -30,6 +30,8 @@ char Buf[32];
 static std::mutex g_mutex;
 static std::deque<std::string> g_debugLog;
 static constexpr size_t MAX_DEBUG_LINES = 200;
+bool g_showSaveMessage = false;
+std::string g_saveMessage;
 
 static void DebugLog2(const std::string& s)
 {
@@ -42,7 +44,7 @@ std::vector<std::string> GetDebugLog2()
     std::lock_guard<std::mutex> lock(g_mutex);
     return { g_debugLog.begin(), g_debugLog.end() };
 }
-// For turning bytes into kilobytes, megabytes and so on.
+
 static const char* FormatBytes(uint64_t bytes, char* buf, size_t bufSize)
 {
     const char* units[] = { "B", "KB", "MB", "GB", "TB" };
@@ -60,19 +62,14 @@ static const char* FormatBytes(uint64_t bytes, char* buf, size_t bufSize)
 
 Ping g_ping;
 
-static void CopyAndScale(
-    const std::vector<float>& src,
-    std::vector<float>& dst,
-    float scale)
+static void CopyAndScale(const std::vector<float>& src, std::vector<float>& dst, float scale)
 {
     dst.resize(src.size());
     for (size_t i = 0; i < src.size(); ++i)
         dst[i] = src[i] * scale;
 }
 
-void PlotBandwidthStacked(
-    const std::vector<float>& upBps,
-    const std::vector<float>& downBps)
+void PlotBandwidthStacked(const std::vector<float>& upBps, const std::vector<float>& downBps)
 {
     if (upBps.empty() || downBps.empty())
         return;
@@ -81,7 +78,6 @@ void PlotBandwidthStacked(
     static std::vector<float> down;
     static std::vector<float> total;
 
-    // Convert to KB/s
     CopyAndScale(upBps, up, 1.0f / 1024.0f);
     CopyAndScale(downBps, down, 1.0f / 1024.0f);
 
@@ -102,17 +98,14 @@ void PlotBandwidthStacked(
         ImPlot::SetupAxisLimits(ImAxis_X1, 150, (double)n, ImGuiCond_Always);
         ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxKbps * 1.1f, ImGuiCond_Always);
 
-        // Download
         ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.2f, 0.6f, 1.0f, 0.6f));
         ImPlot::PlotShaded("Download", up.data(), (int)n, 0);
         ImPlot::PopStyleColor();
 
-        // Upload
         ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.3f, 0.9f, 0.4f, 0.6f));
         ImPlot::PlotShaded("Upload", total.data(), (int)n, 0);
         ImPlot::PopStyleColor();
 
-        // Overlays
         ImPlotRect limits = ImPlot::GetPlotLimits();
         ImDrawList* draw = ImPlot::GetPlotDrawList();
 
@@ -192,11 +185,9 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
     {
         ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations, ImPlotAxisFlags_NoDecorations | ImPlotAxisFlags_AutoFit);
 
-        // 30-second window (assuming 5 Hz sampling ? 150 points)
         ImPlot::SetupAxisLimits(ImAxis_X1, n - 150, n, ImGuiCond_Always);
         ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxRate * 1.1f, ImGuiCond_Always);
 
-        // --- Stacked areas ---
         ImPlot::PushStyleColor(ImPlotCol_Fill, ImVec4(0.30f, 0.55f, 0.90f, 0.7f));
         ImPlot::PlotShaded("TCP", tcp.data(), n, 0);
         ImPlot::PopStyleColor();
@@ -213,7 +204,6 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
         ImPlot::PlotShaded("Other", other.data(), n, 0);
         ImPlot::PopStyleColor();
 
-        // --- Overlays ---
         ImPlotRect limits = ImPlot::GetPlotLimits();
         ImDrawList* draw = ImPlot::GetPlotDrawList();
 
@@ -285,11 +275,7 @@ void PlotLatency(const std::vector<float>& latencyMs, float graphHeight)
         ImPlotRect limits = ImPlot::GetPlotLimits();
         ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
         ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
-        draw->AddText(
-            ImVec2(tl.x + 6, tl.y + 6),
-            IM_COL32(200, 200, 200, 255),
-            "Latency"
-        );
+        draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Latency");
 
         if (ImPlot::IsPlotHovered())
         {
@@ -320,14 +306,9 @@ void PlotJitter(const std::vector<float>& jitterMs, float graphHeight)
     for (int i = start; i < n; ++i)
         maxJitter = std::max(maxJitter, jitterMs[i]);
 
-    if (ImPlot::BeginPlot(
-        "##Jitter (ms)",
-        ImVec2(-1, graphHeight),
-        ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
+    if (ImPlot::BeginPlot("##Jitter (ms)", ImVec2(-1, graphHeight), ImPlotFlags_NoLegend | ImPlotFlags_NoMenus))
     {
-        ImPlot::SetupAxes(nullptr, nullptr,
-            ImPlotAxisFlags_NoTickLabels,
-            ImPlotAxisFlags_AutoFit);
+        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoTickLabels,ImPlotAxisFlags_AutoFit);
 
         ImPlot::SetupAxisLimits(ImAxis_X1, 0, count, ImGuiCond_Always);
 		ImPlot::SetupAxisLimits(ImAxis_Y1, 0, maxJitter * 1.1f, ImGuiCond_Always);
@@ -340,11 +321,7 @@ void PlotJitter(const std::vector<float>& jitterMs, float graphHeight)
         ImPlotRect limits = ImPlot::GetPlotLimits();
         ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
         ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
-        draw->AddText(
-            ImVec2(tl.x + 6, tl.y + 6),
-            IM_COL32(200, 200, 200, 255),
-            "Jitter"
-        );
+        draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Jitter");
 
         if (ImPlot::IsPlotHovered())
         {
@@ -439,7 +416,20 @@ void RenderGui(float dt)
 
     ImGui::SameLine();
     if (ImGui::Button("Save"))
-        SavePcap("capture.pcap");
+    {
+        std::string filename = ShowSaveFileDialog();
+
+        if (!filename.empty())
+        {
+            g_showSaveMessage = true;
+
+            std::thread([filename]()
+                {
+                    SavePcap(filename);
+                    std::lock_guard<std::mutex> lock(g_mutex);
+                }).detach();
+        }
+    }
 
     ImGui::SameLine();
     if (ImGui::Button("Ping")) {
@@ -466,7 +456,7 @@ void RenderGui(float dt)
     ImGui::NextColumn();
     ImGui::Text("Bandwidth\n%s", FormatBytes(m.bps, Buf, sizeof(Buf)));
     ImGui::NextColumn();
-    ImGui::Text("PPS\n%.1f", m.pps);
+    ImGui::Text("Packets/s\n%.1f", m.pps);
     ImGui::NextColumn();
     ImGui::Text("Total Data\n%s", FormatBytes(m.totalBytes, Buf, sizeof(Buf)));
 	ImGui::NextColumn();
@@ -589,9 +579,8 @@ void RenderGui(float dt)
         }
         ImGui::EndTable();
 
-        ImGui::Text("Top Applications");
         char buf[32];
-        
+        ImGui::Text("Top Applications");
         auto apps = GetTopApplications(6);
 
         ImGui::BeginTable("AppsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg);
