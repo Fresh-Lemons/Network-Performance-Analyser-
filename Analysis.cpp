@@ -1,5 +1,6 @@
 #include "Analysis.h"
 #include "AppBandwidth.h"
+#include "NpcapCapture.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <mutex>
@@ -469,7 +470,7 @@ void UpdateMetrics(double dt)
             g_byteSource = ByteSource::ETW;
         }
     }
-    else if (visibility > highThreshold && nicBps > 1e6)
+    else if (visibility > highThreshold || !g_captureFilter.empty())
     {
         highTimer += dt;
         lowTimer = 0.0;

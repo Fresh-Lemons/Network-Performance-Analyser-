@@ -27,6 +27,7 @@ static char errbuf[PCAP_ERRBUF_SIZE];
 static uint32_t g_localIP = 0;
 static std::deque<std::string> g_debugLog;
 static constexpr size_t MAX_DEBUG_LINES = 200;
+std::string g_captureFilter;
 
 static void DebugLog(const std::string& s)
 {
@@ -292,6 +293,8 @@ void ApplyFilter(const std::string& filter)
 {
     if (!g_handle || filter.empty())
         return;
+
+	g_captureFilter = filter;
 
     bpf_program fp{};
     pcap_compile(g_handle, &fp, filter.c_str(), 1, PCAP_NETMASK_UNKNOWN);

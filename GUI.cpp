@@ -500,7 +500,7 @@ void RenderGui(float dt)
     // =====================================================
     // MAIN SPLIT
     // =====================================================
-    float remainingHeight = ImGui::GetContentRegionAvail().y;
+    float remainingHeight = ImGui::GetContentRegionAvail().y - 25;
     float packetListHeight = remainingHeight * 0.30f;
     float upperHeight = remainingHeight - packetListHeight;
 
