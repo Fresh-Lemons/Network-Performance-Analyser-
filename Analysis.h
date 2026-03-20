@@ -61,6 +61,22 @@ struct Metrics
 	double timeElapsed = 0.0;
 };
 
+struct MetricState
+{
+    uint64_t lastBytes = 0;
+    uint64_t lastPackets = 0;
+    uint64_t lastUp = 0;
+    uint64_t lastDown = 0;
+
+    uint64_t lastETWBytes = 0;
+    uint64_t lastETWUp = 0;
+    uint64_t lastETWDown = 0;
+
+    double smoothedETWBps = 0.0;
+    double smoothedETWUpBps = 0.0;
+    double smoothedETWDownBps = 0.0;
+};
+
 struct FlowKey
 {
     std::string srcIP;
@@ -139,3 +155,4 @@ std::vector<std::pair<std::string, float>> GetTopHosts(size_t maxHosts);
 std::vector<std::string> GetDebugLog();
 const char* GetSourceName();
 extern Protocols g_currentProtocolBytes;
+void ResetAnalyser();

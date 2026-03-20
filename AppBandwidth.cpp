@@ -48,9 +48,7 @@ static std::thread g_traceThread;
 static bool g_running = false;
 
 static const GUID KERNEL_NETWORK_PROVIDER = { 0x7dd42a49, 0x5329, 0x4832, { 0x8d, 0xfd, 0x43, 0xd9, 0x79, 0x15, 0x3a, 0x88 } };
-static const GUID SystemTraceControlGuid =
-{ 0x9e814aad, 0x3204, 0x11d2,
-  { 0x9a, 0x82, 0x00, 0x60, 0x08, 0xa8, 0x69, 0x39 } };
+static const GUID SystemTraceControlGuid = { 0x9e814aad, 0x3204, 0x11d2, { 0x9a, 0x82, 0x00, 0x60, 0x08, 0xa8, 0x69, 0x39 } };
 
 
 static std::string GetProcessName(DWORD pid)
@@ -234,4 +232,11 @@ std::vector<std::string> GetDebugLog1()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     return { g_debugLog.begin(), g_debugLog.end() };
+}
+
+void ResetAppBandwidth()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_apps.clear();
+    g_etwMetrics = {};
 }

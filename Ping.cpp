@@ -108,3 +108,14 @@ double Ping::GetPacketLoss() const
     if (sent == 0) return 0.0;
     return 100.0 * (sent - received) / sent;
 }
+
+void Ping::ResetPing()
+{
+    running = false;
+    sent = 0;
+    received = 0;
+    outstanding.clear();
+    rtts.clear();
+    jitters.clear();
+    lastRtt = -1.0;
+}

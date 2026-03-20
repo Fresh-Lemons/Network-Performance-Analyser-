@@ -440,6 +440,19 @@ void RenderGui(float dt)
     }
 
     ImGui::SameLine();
+    if (ImGui::Button("Reset"))
+    {
+        if (IsCapturing())
+        {
+            StopCapture();
+            StopAppBandwidth();
+        }
+        ResetAnalyser();
+        ResetAppBandwidth();
+        g_ping.ResetPing();
+    }
+
+    ImGui::SameLine();
     ImGui::Text("Network Latency: %.1f ms   ", g_ping.GetAverageLatency());
     ImGui::SameLine();
     ImGui::Text("Network Jitter: %.1f ms    ", g_ping.GetAverageJitter());
@@ -490,6 +503,8 @@ void RenderGui(float dt)
     ImGui::Text("Time elapsed\n%02d:%02d", minutes, seconds);
     ImGui::NextColumn();
     ImGui::Text("Capture Mode\n%s", GetSourceName());
+    ImGui::NextColumn();
+    ImGui::Text("bps: \n%f", m.bps);
     ImGui::NextColumn();
 
     ImGui::Columns(1);

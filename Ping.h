@@ -4,18 +4,18 @@
 #include <unordered_map>
 #include <cstdint>
 
-struct Packet; // forward declaration
+struct Packet;
 
 class Ping {
 public:
     bool Start(const char* ip, int count = 4);
-    void OnPacket(const Packet& pkt);
 
     double GetAverageLatency() const;
     double GetAverageJitter() const;
     double GetPacketLoss() const;
 
     bool IsRunning() const { return running; }
+    void ResetPing();
 
 private:
     bool running = false;

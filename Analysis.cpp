@@ -56,6 +56,7 @@ static uint64_t lastNicOut = 0;
 Protocols g_currentProtocolBytes;
 
 static std::unordered_map<size_t, Flow> g_flows;
+MetricState g_metricState;
 
 std::optional<AdapterInfo> g_physicalAdapter;
 ULONG g_activeIfIndex = 0;
@@ -368,16 +369,7 @@ void UpdateMetrics(double dt)
     std::lock_guard<std::mutex> lock(g_mutex);
     Protocols protocolBytes;
 
-    static uint64_t lastBytes = 0;
-    static uint64_t lastPackets = 0;
-    static uint64_t lastUp = 0;
-    static uint64_t lastDown = 0;
-    static uint64_t lastETWBytes = 0;
-    static uint64_t lastETWUp = 0;
-    static uint64_t lastETWDown = 0;
-    static double smoothedETWBps = 0.0;
-    static double smoothedETWUpBps = 0.0;
-    static double smoothedETWDownBps = 0.0;
+    auto& s = g_metricState;
 
     uint64_t bytes = 0;
     uint64_t packets = 0;
@@ -390,13 +382,13 @@ void UpdateMetrics(double dt)
         uint64_t totalUp = g_metrics.totalBytesUp;
         uint64_t totalDown = g_metrics.totalBytesDown;
 
-        bytes = totalBytes - lastBytes;
-        up = totalUp - lastUp;
-        down = totalDown - lastDown;
+        bytes = totalBytes - s.lastBytes;
+        up = totalUp - s.lastUp;
+        down = totalDown - s.lastDown;
 
-        lastBytes = totalBytes;
-        lastUp = totalUp;
-        lastDown = totalDown;
+        s.lastBytes = totalBytes;
+        s.lastUp = totalUp;
+        s.lastDown = totalDown;
     }
     else
     {
@@ -404,27 +396,27 @@ void UpdateMetrics(double dt)
         uint64_t totalUp = g_etwMetrics.totalBytesUp;
         uint64_t totalDown = g_etwMetrics.totalBytesDown;
 
-        uint64_t deltaBytes = totalBytes - lastETWBytes;
-        uint64_t deltaUp = totalUp - lastETWUp;
-        uint64_t deltaDown = totalDown - lastETWDown;
+        uint64_t deltaBytes = totalBytes - s.lastETWBytes;
+        uint64_t deltaUp = totalUp - s.lastETWUp;
+        uint64_t deltaDown = totalDown - s.lastETWDown;
 
-        lastETWBytes = totalBytes;
-        lastETWUp = totalUp;
-        lastETWDown = totalDown;
+        s.lastETWBytes = totalBytes;
+        s.lastETWUp = totalUp;
+        s.lastETWDown = totalDown;
 
         const double alpha = 0.4;
 
-        double instantBps = deltaBytes / dt;
-        double instantUpBps = deltaUp / dt;
-        double instantDownBps = deltaDown / dt;
+        double bps = deltaBytes / dt;
+        double upbps = deltaUp / dt;
+        double downbps = deltaDown / dt;
 
-        smoothedETWBps = smoothedETWBps * (1.0 - alpha) + instantBps * alpha;
-        smoothedETWUpBps = smoothedETWUpBps * (1.0 - alpha) + instantUpBps * alpha;
-        smoothedETWDownBps = smoothedETWDownBps * (1.0 - alpha) + instantDownBps * alpha;
+        s.smoothedETWBps = s.smoothedETWBps * (1.0 - alpha) + bps * alpha;
+        s.smoothedETWUpBps = s.smoothedETWUpBps * (1.0 - alpha) + upbps * alpha;
+        s.smoothedETWDownBps = s.smoothedETWDownBps * (1.0 - alpha) + downbps * alpha;
 
-        bytes = smoothedETWBps * dt;
-        up = smoothedETWUpBps * dt;
-        down = smoothedETWDownBps * dt;
+        bytes = s.smoothedETWBps * dt;
+        up = s.smoothedETWUpBps * dt;
+        down = s.smoothedETWDownBps * dt;
     }
 
     double bps = bytes / dt;
@@ -432,8 +424,8 @@ void UpdateMetrics(double dt)
     double downBps = down / dt;
 
     uint64_t totalPackets = g_metrics.totalPackets;
-    double pps = (totalPackets - lastPackets) / dt;
-    lastPackets = totalPackets;
+    double pps = (totalPackets - s.lastPackets) / dt;
+    s.lastPackets = totalPackets;
     float latencyMs = g_metrics.latency;
     float jitterMs = g_metrics.jitter;
     if (!std::isfinite(latencyMs))
@@ -722,4 +714,27 @@ std::vector<std::string> GetDebugLog()
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     return { g_debugLog.begin(), g_debugLog.end() };
+}
+
+void ResetAnalyser()
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_metrics = {};
+    g_metricState = {};
+    g_bpsHistory.assign(300, 0.0f);
+    g_upBpsHistory.assign(300, 0.0f);
+    g_downBpsHistory.assign(300, 0.0f);
+    g_ppsHistory.assign(300, 0.0f);
+    g_protocolHistory.assign(300, {});
+    g_latencyHistory.assign(50, 0.0f);
+    g_jitterHistory.assign(50, 0.0f);
+    g_flows.clear();
+    g_currentProtocolBytes = {0, 0, 0, 0};
+    lastNicIn = 0;
+    lastNicOut = 0;
+    lastLatency = 0;
+    g_metrics.lastLatency = NAN;
+    lowTimer = 0.0;
+    highTimer = 0.0;
+    g_packets.clear();
 }
