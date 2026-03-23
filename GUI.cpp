@@ -115,7 +115,8 @@ void PlotBandwidthStacked(const std::vector<float>& upBps, const std::vector<flo
         draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Throughput");
 
         char buf[64];
-        snprintf(buf, sizeof(buf), "%.1f Mbs", maxKbps * 1.1 / 1024);
+        FormatBytes((uint64_t)(maxKbps * 1.1 * 1024), buf, sizeof(buf));
+        ImGui::Text("%s/s", buf);
 
         draw->AddText(ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6), IM_COL32(200, 200, 200, 255), buf);
 
@@ -139,9 +140,10 @@ void PlotBandwidthStacked(const std::vector<float>& upBps, const std::vector<flo
             int idx = (int)std::round(mouse.x);
             if (idx >= 0 && idx < (int)n) {
                 ImGui::BeginTooltip();
-                ImGui::Text("Download: %.1f KB/s", down[idx]);
-                ImGui::Text("Upload:   %.1f KB/s", up[idx]);
-                ImGui::Text("Total:    %.1f KB/s", total[idx]);
+                char buf1[64], buf2[64], buf3[64];
+                ImGui::Text("Download: %s/s", FormatBytes((uint64_t)(down[idx] * 1024), buf, sizeof(buf)));
+                ImGui::Text("Upload:   %s/s", FormatBytes((uint64_t)(up[idx] * 1024), buf, sizeof(buf)));
+                ImGui::Text("Total:    %s/s", FormatBytes((uint64_t)(total[idx] * 1024), buf, sizeof(buf)));
                 ImGui::EndTooltip();
             }
         }
@@ -213,7 +215,8 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
         draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Protocol bandwidth");
 
         char buf[64];
-        snprintf(buf, sizeof(buf), "%.1f KB/s", maxRate);
+        FormatBytes((uint64_t)(maxRate * 1024), buf, sizeof(buf));
+        ImGui::Text("%s/s", buf);
 
         draw->AddText(ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6), IM_COL32(200, 200, 200, 255), buf);
 
@@ -232,10 +235,11 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
             int idx = (int)std::round(mouse.x);
             if (idx >= 0 && idx < n) {
                 ImGui::BeginTooltip();
-                ImGui::Text("TCP:   %.1f KB/s", hist[idx].tcpBytes);
-                ImGui::Text("UDP:   %.1f KB/s", hist[idx].udpBytes);
-                ImGui::Text("ICMP:  %.1f KB/s", hist[idx].icmpBytes);
-                ImGui::Text("Other: %.1f KB/s", hist[idx].otherBytes);
+                char buf1[64], buf2[64], buf3[64], buf4[64];
+                ImGui::Text("TCP:   %s/s", FormatBytes((uint64_t)hist[idx].tcpBytes * 1024, buf1, sizeof(buf1)));
+                ImGui::Text("UDP:   %s/s", FormatBytes((uint64_t)hist[idx].udpBytes * 1024, buf2, sizeof(buf2)));
+                ImGui::Text("ICMP:  %s/s", FormatBytes((uint64_t)hist[idx].icmpBytes * 1024, buf3, sizeof(buf3)));
+                ImGui::Text("Other: %s/s", FormatBytes((uint64_t)hist[idx].otherBytes * 1024, buf4, sizeof(buf4)));
                 ImGui::EndTooltip();
             }
         }
@@ -504,8 +508,6 @@ void RenderGui(float dt)
     ImGui::NextColumn();
     ImGui::Text("Capture Mode\n%s", GetSourceName());
     ImGui::NextColumn();
-    ImGui::Text("bps: \n%f", m.bps);
-    ImGui::NextColumn();
 
     ImGui::Columns(1);
     ImGui::EndChild();
@@ -680,7 +682,7 @@ void RenderGui(float dt)
         const auto& p = packets[i];
         ImGui::PushID(i);
 
-        std::string label = p.srcIP + ":" + std::to_string(p.srcPort) + " - " + p.dstIP + ":" + std::to_string(p.dstPort) + "  " + p.protocol;
+        std::string label = p.srcIP + ":" + std::to_string(p.srcPort) + " - " + p.dstIP + ":" + std::to_string(p.dstPort) + "  " + p.protocol + "  " + std::to_string(p.length) + " bytes";
 
         ImGui::Selectable(label.c_str());
         ImGui::PopID();
