@@ -112,11 +112,10 @@ void PlotBandwidthStacked(const std::vector<float>& upBps, const std::vector<flo
         ImVec2 tl = ImPlot::PlotToPixels(limits.X.Min, limits.Y.Max);
         ImVec2 tr = ImPlot::PlotToPixels(limits.X.Max, limits.Y.Max);
 
-        draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Throughput");
+        draw->AddText(ImVec2(tl.x + 6, tl.y + 6), IM_COL32(200, 200, 200, 255), "Bandwidth");
 
         char buf[64];
         FormatBytes((uint64_t)(maxKbps * 1.1 * 1024), buf, sizeof(buf));
-        ImGui::Text("%s/s", buf);
 
         draw->AddText(ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6), IM_COL32(200, 200, 200, 255), buf);
 
@@ -216,7 +215,6 @@ void PlotProtocolStacked(const std::vector<Protocols>& hist)
 
         char buf[64];
         FormatBytes((uint64_t)(maxRate * 1024), buf, sizeof(buf));
-        ImGui::Text("%s/s", buf);
 
         draw->AddText(ImVec2(tr.x - ImGui::CalcTextSize(buf).x - 6, tl.y + 6), IM_COL32(200, 200, 200, 255), buf);
 
